@@ -1,53 +1,116 @@
 # Use Instagram Reels Transcript API with Claude via Apify MCP
 
-Claude-compatible MCP workflows can use Apify MCP to call the Instagram transcript Actor. This repository does not include a separate Claude-specific SDK wrapper, Claude Skill, custom MCP server, or hosted proxy yet.
+## What this guide covers
+
+This guide shows how to use the Actor `apple_yang/instagram-transcripts-scraper` in Claude-compatible MCP workflows through Apify MCP.
+
+This repository does not include a separate Claude-specific SDK wrapper, Claude Skill, custom MCP server, or hosted proxy yet.
 
 Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
-## Intended architecture
+## Prerequisites
 
-```text
-Claude or Claude-compatible MCP client
--> Apify MCP
--> Instagram transcript Actor
--> structured transcript data
--> Claude analysis
+- Claude-compatible MCP client
+- Apify account
+- Apify OAuth connection or `APIFY_TOKEN`
+- Public Instagram Reel URL
+- Actor ID: `apple_yang/instagram-transcripts-scraper`
+
+## Hosted Apify MCP configuration
+
+OAuth-style remote configuration:
+
+```json
+{
+  "mcpServers": {
+    "apify": {
+      "url": "https://mcp.apify.com"
+    }
+  }
+}
 ```
 
-The Actor returns transcript JSON. Claude can then summarize the Reel, extract messaging patterns, compare creators, or generate structured research notes.
+Actor-focused configuration:
 
-## Example prompts
-
-### Competitor content analysis
-
-```text
-Use the Instagram Reel transcript data to analyze this competitor post. Identify the hook, target audience, pain points, product positioning, CTA, and 5 content ideas we could test without copying.
+```json
+{
+  "mcpServers": {
+    "apify-instagram-transcript": {
+      "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper"
+    }
+  }
+}
 ```
 
-### Ad creative analysis
+## Bearer token configuration
 
-```text
-Review this Reel transcript as ad creative research. Extract the opening hook, offer framing, objections handled, proof points, urgency, CTA, and likely reason this creative might perform.
+```json
+{
+  "mcpServers": {
+    "apify-instagram-transcript": {
+      "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper",
+      "headers": {
+        "Authorization": "Bearer <APIFY_TOKEN>"
+      }
+    }
+  }
+}
 ```
 
-### Creator research
+Only use Bearer token config in secure local or server-side settings. Do not commit token config files.
 
-```text
-Analyze this creator's Reel transcript and metadata. Summarize their content style, recurring topics, audience assumptions, and whether they appear aligned with a B2B or consumer campaign.
+## Local stdio setup
+
+```json
+{
+  "mcpServers": {
+    "apify": {
+      "command": "npx",
+      "args": ["-y", "@apify/actors-mcp-server@latest"],
+      "env": {
+        "APIFY_TOKEN": "<APIFY_TOKEN>"
+      }
+    }
+  }
+}
 ```
 
-### Campaign research
+Use this when the client does not support remote MCP URLs. It requires Node.js 18 or newer.
+
+## Example Claude prompt
 
 ```text
-Compare these Reel transcript records and produce a campaign research brief with themes, repeated claims, audience language, top hooks, and recommended next tests.
+Use Apify MCP to call the Actor apple_yang/instagram-transcripts-scraper.
+
+Input:
+{
+  "videoUrl": "https://www.instagram.com/reel/your_reel_id/",
+  "sessionid": ""
+}
+
+After the Actor finishes, retrieve the full output if needed and produce:
+1. A short summary
+2. The main hook
+3. Key talking points
+4. CTA
+5. Product or brand mentions
+6. Suggestions for a similar Reel script
 ```
+
+## Direct Actor tool vs generic Apify tools
+
+- If the Actor appears as a direct tool, call it directly.
+- If not, use `search-actors`, `fetch-actor-details`, `call-actor`, and `get-actor-output`.
+
+## Claude Skill note
+
+This repository does not include a Claude Skill yet. A Claude Skill may be added later as a separate reusable workflow package.
 
 ## Security notes
 
 - Keep Apify tokens out of public prompts and screenshots.
 - Use secure local or server-side connector configuration.
-- Avoid committing MCP configuration files that contain secrets.
-- Review tool calls before running workflows that write to files, databases, or external systems.
+- Do not use the Actor for private or unauthorized content.
 
 ## Related docs
 

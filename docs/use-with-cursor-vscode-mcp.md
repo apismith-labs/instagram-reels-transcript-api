@@ -1,52 +1,116 @@
 # Use Instagram Reels Transcript API with Cursor and VS Code via Apify MCP
 
-Developer tools such as Cursor and VS Code can use MCP-compatible tool configuration to access external tools such as Apify MCP. This repository does not include a custom IDE extension.
+## What this guide covers
+
+This guide shows how developers can use Apify MCP from AI coding assistants to inspect Actor output and generate integration code.
+
+The Actor can help coding assistants inspect transcript output and generate integration code, database schemas, ETL steps, or data pipeline plans. This repository does not include a custom IDE extension.
 
 Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
-## How this helps coding assistants
+## Prerequisites
 
-The Actor can help coding assistants inspect transcript output and generate integration code, database schemas, ETL steps, or data pipeline plans.
+- Cursor or VS Code with MCP-compatible tooling
+- Apify account
+- OAuth or `APIFY_TOKEN`
+- Public Instagram Reel URL
+- Actor ID: `apple_yang/instagram-transcripts-scraper`
 
-Typical flow:
+## Cursor configuration example
 
-```text
-Cursor or VS Code
--> MCP-compatible tool configuration
--> Apify MCP
--> Instagram transcript Actor
--> transcript JSON
--> coding assistant generates implementation guidance
+Create or update `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "apify-instagram-transcript": {
+      "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper"
+    }
+  }
+}
 ```
 
-## Example prompts
+Bearer token version:
+
+```json
+{
+  "mcpServers": {
+    "apify-instagram-transcript": {
+      "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper",
+      "headers": {
+        "Authorization": "Bearer <APIFY_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+## VS Code MCP configuration example
+
+Generic VS Code user-level MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "apify-instagram-transcript": {
+      "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper"
+    }
+  }
+}
+```
+
+Exact file location may vary by extension or client. Prefer user-level config or secure workspace config. Do not commit token-bearing workspace files.
+
+## Local stdio alternative
+
+```json
+{
+  "mcpServers": {
+    "apify": {
+      "command": "npx",
+      "args": ["-y", "@apify/actors-mcp-server@latest"],
+      "env": {
+        "APIFY_TOKEN": "<APIFY_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+## Example coding assistant prompts
 
 ```text
-Use the Instagram transcript Actor output to generate a TypeScript interface.
+Use the Apify MCP Actor apple_yang/instagram-transcripts-scraper to inspect this public Instagram Reel URL. Then generate a TypeScript interface for the output fields.
 ```
 
 ```text
-Create a database schema for storing Reel transcript records, timestamped segments, creator metadata, and processing errors.
+Run the Instagram transcript Actor with this Reel URL, inspect the returned JSON, and create a PostgreSQL schema for storing transcript records.
 ```
 
 ```text
-Write a batch-processing pipeline based on this Actor output.
+Use this Actor output to write a batch-processing pipeline that stores transcript text, segments, creator username, like count, comment count, and errMsg.
 ```
 
 ```text
-Generate error handling logic for failed Actor runs and records with errMsg.
+Generate error handling logic for failed Actor runs, empty transcripts, and incomplete MCP output previews.
 ```
 
-```text
-Review this sample Actor output and suggest indexes for search, creator filtering, and transcript lookup.
-```
+## Useful developer tasks
+
+- Generate TypeScript interfaces
+- Generate database schemas
+- Generate batch processing code
+- Generate error handling strategy
+- Compare output fields across runs
+- Write tests based on sample output
 
 ## Security notes
 
-- Do not commit local MCP config containing tokens.
-- Use OAuth or environment variables where possible.
+- Do not commit `.cursor/mcp.json` if it contains tokens.
+- Do not commit workspace MCP configs with secrets.
+- Prefer OAuth where available.
 - Review tool calls before running write operations.
-- Keep Actor output containing sensitive research data out of public issue trackers and screenshots.
+- Keep `APIFY_TOKEN` out of public prompts and screenshots.
 
 ## Related docs
 

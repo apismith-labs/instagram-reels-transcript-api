@@ -11,9 +11,9 @@ This repository helps developers quickly validate the Actor and prepare integrat
 
 ## First-stage scope
 
-This phase includes the repository scaffold, documentation placeholders, and the first runnable cURL quick validation example.
+This phase includes the repository scaffold, documentation placeholders, and runnable cURL and Python examples.
 
-Python, Node.js, Java, and Go examples remain scaffold-only and will be added in later phases.
+Node.js, Java, and Go examples remain scaffold-only and will be added in later phases.
 
 ## Planned examples
 
@@ -93,4 +93,4 @@ See [docs/input-output-fields.md](docs/input-output-fields.md) for field notes.
 
 ## Current status
 
-The cURL quick validation example is available in `examples/curl/`. Python, Node.js, Java, and Go examples are still scaffold-only.
+The cURL quick validation example is available in `examples/curl/`. Python examples are available in `examples/python/`. Node.js, Java, and Go examples are still scaffold-only.

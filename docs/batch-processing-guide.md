@@ -1,8 +1,6 @@
 # Batch processing guide
 
-This guide outlines the planned batch processing approach for the examples in this repository.
-
-This phase is scaffold only. Runnable batch examples will be added in the next phase.
+This guide outlines the batch processing approach used by the examples in this repository.
 
 ## Input CSV
 
@@ -17,7 +15,7 @@ Each row should contain one Instagram Reel URL.
 
 ## Planned batch workflow
 
-Each major language example will show how to:
+Each major language example shows how to:
 
 1. Load Reel URLs from CSV.
 2. Validate that each row contains a non-empty `videoUrl`.
@@ -41,6 +39,8 @@ Suggested normalized fields:
 
 ## Operational notes
 
-Batch jobs should read `APIFY_TOKEN` from the environment.
+Batch jobs should read configuration such as `APIFY_TOKEN`, `APIFY_ACTOR_ID`, optional `INSTAGRAM_SESSIONID`, and `MAX_CONCURRENCY` from the environment.
+
+Instagram Reel URLs are runtime input. Single URL examples accept the URL as a CLI argument, while batch examples read URLs from CSV files.
 
 For larger CSV files, add rate limiting, retries, checkpointing, and resumable output so a failed run does not require starting from the beginning.

@@ -48,9 +48,7 @@ def main() -> None:
     reel_url = sys.argv[1] if len(sys.argv) > 1 else os.getenv("INSTAGRAM_REEL_URL")
 
     if not reel_url:
-        raise SystemExit(
-            "Error: INSTAGRAM_REEL_URL is required. Set it in .env or pass it as a CLI argument."
-        )
+        raise SystemExit("Error: Pass an Instagram Reel URL as a CLI argument.")
 
     client = ApifyClient(token)
     run_input = {

@@ -2,17 +2,19 @@
 
 Use this checklist before connecting the Actor to a production workflow.
 
-This phase is scaffold only. Runnable production examples will be added in the next phase.
+Use it alongside the runnable examples before moving from local validation to production workflows.
 
 ## Credentials
 
 - `APIFY_TOKEN` is read from environment variables or a secret manager.
+- `APIFY_ACTOR_ID`, optional `INSTAGRAM_SESSIONID`, and `MAX_CONCURRENCY` are treated as configuration.
 - `.env` is listed in `.gitignore`.
 - No real token appears in source code, examples, logs, or documentation.
 
 ## Inputs
 
-- Instagram Reel URLs are validated before submission.
+- Instagram Reel URLs are treated as runtime input, not stable environment configuration.
+- Single URL jobs pass the Reel URL as a CLI argument or request payload.
 - Batch CSV files include a `videoUrl` column.
 - Optional `sessionid` usage is documented internally if your integration requires it.
 

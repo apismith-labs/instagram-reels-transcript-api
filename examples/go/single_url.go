@@ -56,7 +56,7 @@ func runSingle() error {
 		reelURL = os.Args[1]
 	}
 	if strings.TrimSpace(reelURL) == "" {
-		return errors.New("Error: INSTAGRAM_REEL_URL is required. Set it in .env or pass it as a CLI argument.")
+		return errors.New("Error: Pass an Instagram Reel URL as a CLI argument.")
 	}
 
 	fmt.Println("Actor ID:", actorID)

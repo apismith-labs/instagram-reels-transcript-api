@@ -25,11 +25,13 @@ From the repository root:
 cp .env.example .env
 ```
 
-Edit `.env` and set your Apify token and Reel URL:
+Edit `.env` and set configuration values:
 
 ```bash
 APIFY_TOKEN='your_apify_token_here'
-INSTAGRAM_REEL_URL='https://www.instagram.com/reel/your_reel_id/'
+APIFY_ACTOR_ID='apple_yang/instagram-transcripts-scraper'
+INSTAGRAM_SESSIONID=''
+MAX_CONCURRENCY=3
 ```
 
 Quote values that contain special characters such as `&` or `?`.
@@ -38,17 +40,13 @@ Optionally set `INSTAGRAM_SESSIONID` if your integration requires it. Never comm
 
 ## Run a single URL
 
-Use `INSTAGRAM_REEL_URL` from `.env`:
-
-```bash
-node single-url.mjs
-```
-
-Or pass a URL directly:
+Pass the Reel URL as runtime input:
 
 ```bash
 node single-url.mjs "https://www.instagram.com/reel/your_reel_id/"
 ```
+
+`INSTAGRAM_REEL_URL` is still accepted as an environment fallback, but do not put business input in `.env` for normal usage.
 
 Output is saved to:
 

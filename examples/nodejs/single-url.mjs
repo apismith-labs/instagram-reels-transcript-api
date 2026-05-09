@@ -39,9 +39,7 @@ async function main() {
   const reelUrl = process.argv[2] || process.env.INSTAGRAM_REEL_URL;
 
   if (!reelUrl) {
-    throw new Error(
-      'Error: INSTAGRAM_REEL_URL is required. Set it in .env or pass it as a CLI argument.',
-    );
+    throw new Error('Error: Pass an Instagram Reel URL as a CLI argument.');
   }
 
   const client = new ApifyClient({ token });

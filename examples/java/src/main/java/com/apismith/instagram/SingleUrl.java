@@ -36,7 +36,7 @@ public class SingleUrl {
         String reelUrl = args.length > 0 ? args[0] : env(dotenv, "INSTAGRAM_REEL_URL", "");
 
         if (reelUrl.isBlank()) {
-            throw new IllegalArgumentException("Error: INSTAGRAM_REEL_URL is required. Set it in .env or pass it as a CLI argument.");
+            throw new IllegalArgumentException("Error: Pass an Instagram Reel URL as a CLI argument.");
         }
 
         System.out.println("Actor ID: " + actorId);

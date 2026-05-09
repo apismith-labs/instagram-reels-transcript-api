@@ -42,12 +42,13 @@ Create a local `.env` file from `.env.example`:
 ```bash
 APIFY_TOKEN='your_apify_token_here'
 APIFY_ACTOR_ID='apple_yang/instagram-transcripts-scraper'
-INSTAGRAM_REEL_URL='https://www.instagram.com/reel/your_reel_id/'
 INSTAGRAM_SESSIONID=''
 MAX_CONCURRENCY=3
 ```
 
 Do not hard-code `APIFY_TOKEN` in source code, scripts, documentation examples, commits, logs, or shared output files.
+
+Configuration belongs in `.env`: token, Actor ID, optional session ID, and concurrency. Instagram Reel URLs are runtime input: pass a single URL as a CLI argument, or provide many URLs in `sample-data/instagram-reel-urls.csv` for batch examples.
 
 ## Actor input
 
@@ -60,7 +61,7 @@ The Actor input uses this shape:
 }
 ```
 
-`videoUrl` is the Instagram Reel URL to process. `sessionid` is optional and should remain blank unless your integration specifically requires it.
+`videoUrl` is runtime input for each request. `sessionid` is optional configuration and should remain blank unless your integration specifically requires it.
 
 ## Important output fields
 

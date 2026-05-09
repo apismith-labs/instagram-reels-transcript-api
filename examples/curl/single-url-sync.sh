@@ -33,6 +33,7 @@ if [[ -n "${EXPORTED_INSTAGRAM_SESSIONID}" ]]; then
 fi
 
 ACTOR_ID="${APIFY_ACTOR_ID:-apple_yang/instagram-transcripts-scraper}"
+REEL_URL="${1:-${INSTAGRAM_REEL_URL:-}}"
 OUTPUT_DIR="${REPO_ROOT}/sample-output/generated"
 OUTPUT_FILE="${OUTPUT_DIR}/curl-single-url-response.json"
 
@@ -41,8 +42,8 @@ if [[ -z "${APIFY_TOKEN:-}" ]]; then
   exit 1
 fi
 
-if [[ -z "${INSTAGRAM_REEL_URL:-}" ]]; then
-  echo "Error: INSTAGRAM_REEL_URL is required. Set it to the Instagram Reel URL you want to process." >&2
+if [[ -z "${REEL_URL}" ]]; then
+  echo "Error: Pass an Instagram Reel URL as a CLI argument." >&2
   exit 1
 fi
 
@@ -61,7 +62,7 @@ json_escape() {
   printf '%s' "${value}"
 }
 
-VIDEO_URL_JSON="$(json_escape "${INSTAGRAM_REEL_URL}")"
+VIDEO_URL_JSON="$(json_escape "${REEL_URL}")"
 SESSIONID_JSON="$(json_escape "${INSTAGRAM_SESSIONID:-}")"
 
 # The synchronous dataset-items endpoint is convenient for quick validation.

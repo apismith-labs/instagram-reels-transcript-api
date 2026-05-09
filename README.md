@@ -97,3 +97,7 @@ See [docs/input-output-fields.md](docs/input-output-fields.md) for field notes.
 ## Current status
 
 The cURL quick validation example is available in `examples/curl/`. Python examples are available in `examples/python/`. Node.js examples are available in `examples/nodejs/`. Java examples are available in `examples/java/`. Go examples are available in `examples/go/`. Rust examples are available in `examples/rust/`.
+
+## License
+
+This project is licensed under the MIT License.

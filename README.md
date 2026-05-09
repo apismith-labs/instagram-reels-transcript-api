@@ -1,12 +1,23 @@
 # Instagram Reels Transcript API examples using Apify
 
-Developer integration examples for the Apify Actor [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper).
+Developer-focused examples for using the Apify Actor [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper) as an Instagram Reels Transcript API.
 
-This repository is the starting point for practical examples that help developers validate Instagram Reels transcript extraction and integrate it into apps, internal tools, and batch workflows.
+This repository helps developers quickly validate the Actor and prepare integrations for applications, internal tools, and batch transcript workflows.
 
-## What this repository will cover
+## Actor details
 
-The examples will cover:
+- Actor page: [Instagram Transcripts Scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
+- Actor ID: `apple_yang/instagram-transcripts-scraper`
+
+## First-stage scope
+
+This phase includes the repository scaffold and documentation placeholders only.
+
+Runnable examples are not included yet. They will be added in the next phase.
+
+## Planned examples
+
+This repository will include examples for:
 
 - cURL
 - Python
@@ -16,34 +27,30 @@ The examples will cover:
 
 Every major language example will include:
 
-- Single Instagram Reel URL processing
-- Batch CSV processing from `sample-data/instagram-reel-urls.csv`
-- Reading credentials from environment variables
-- Saving example Actor output to local files
+- Processing a single Instagram Reel URL
+- Processing a batch CSV file
+- Reading configuration from environment variables
+- Writing example output to `sample-output/`
 - Basic error handling and retry guidance
-
-The first-stage version of this repository contains the structure, documentation, and placeholders only. Full runnable examples will be added in later phases.
-
-## Apify Actor
-
-- Actor page: [Instagram Transcripts Scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
-- Actor ID: `apple_yang/instagram-transcripts-scraper`
 
 ## Authentication
 
 You must provide your own Apify API token.
 
-Create a local `.env` file based on `.env.example`:
+Create a local `.env` file from `.env.example`:
 
 ```bash
 APIFY_TOKEN=your_apify_token_here
+APIFY_ACTOR_ID=apple_yang/instagram-transcripts-scraper
+INSTAGRAM_REEL_URL=https://www.instagram.com/reel/your_reel_id/
+INSTAGRAM_SESSIONID=
 ```
 
-Never hard-code `APIFY_TOKEN` in source code, scripts, documentation examples, commits, logs, or shared output files.
+Do not hard-code `APIFY_TOKEN` in source code, scripts, documentation examples, commits, logs, or shared output files.
 
 ## Actor input
 
-The Actor accepts input in this shape:
+The Actor input uses this shape:
 
 ```json
 {
@@ -52,11 +59,11 @@ The Actor accepts input in this shape:
 }
 ```
 
-`videoUrl` should be the Instagram Reel URL to process. `sessionid` is intentionally left blank in the sample configuration unless your use case requires it.
+`videoUrl` is the Instagram Reel URL to process. `sessionid` is optional and should remain blank unless your integration specifically requires it.
 
 ## Important output fields
 
-Expected output can include:
+Actor output can include these fields:
 
 `url`, `code`, `pk`, `id`, `title`, `img`, `videoUrl`, `audioUrl`, `createTime`, `likeCount`, `commentCount`, `userPk`, `userName`, `userFullName`, `avatarUri`, `text`, `segments`, `errMsg`, `timestamp`.
 
@@ -80,8 +87,9 @@ See [docs/input-output-fields.md](docs/input-output-fields.md) for field notes.
 ├── sample-data/
 │   └── instagram-reel-urls.csv
 └── sample-output/
+    └── .gitkeep
 ```
 
 ## Current status
 
-This repository is ready for the next implementation phase, where runnable cURL, Python, Node.js, Java, and Go examples will be added.
+Scaffold only. Runnable examples will be added in the next phase.

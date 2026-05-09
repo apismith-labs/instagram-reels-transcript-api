@@ -2,6 +2,8 @@
 
 Use this checklist before connecting the Actor to a production workflow.
 
+This phase is scaffold only. Runnable production examples will be added in the next phase.
+
 ## Credentials
 
 - `APIFY_TOKEN` is read from environment variables or a secret manager.

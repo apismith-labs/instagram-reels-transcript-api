@@ -1,6 +1,8 @@
 # Error handling and retries
 
-Production integrations should handle both Actor-level errors and client-side failures.
+This document captures the baseline error handling expectations for future examples.
+
+This phase is scaffold only. Runnable retry logic will be added in the next phase.
 
 ## Error sources
 

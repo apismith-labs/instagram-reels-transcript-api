@@ -1,12 +1,24 @@
-# Python examples
+# Use Instagram Reels Transcript API with Python
+
+## What this directory will include
 
 This directory will contain Python examples for the Apify Actor `apple_yang/instagram-transcripts-scraper`.
 
-Planned examples:
+The examples will cover single URL processing and batch CSV processing.
 
-- Run the Actor for a single Instagram Reel URL.
-- Process `sample-data/instagram-reel-urls.csv` in batch.
-- Read `APIFY_TOKEN` from the local environment.
-- Save structured output to `sample-output/`.
+## Planned files
 
-No runnable Python examples are included in this first-stage scaffold.
+- Single Reel URL example
+- Batch CSV processing example
+- Output writing example
+
+## Environment variables
+
+- `APIFY_TOKEN`
+- `APIFY_ACTOR_ID`
+- `INSTAGRAM_REEL_URL`
+- `INSTAGRAM_SESSIONID`
+
+## Current status
+
+Scaffold only. Runnable examples will be added in the next phase.

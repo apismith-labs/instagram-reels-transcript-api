@@ -1,10 +1,12 @@
 # Input and output fields
 
-This page documents the foundational input and output fields used by the Apify Actor `apple_yang/instagram-transcripts-scraper`.
+This document describes the baseline input and output fields for the Apify Actor `apple_yang/instagram-transcripts-scraper`.
 
 Actor page: [Instagram Transcripts Scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
-## Input
+## Actor input fields
+
+The Actor input uses this shape:
 
 ```json
 {
@@ -13,14 +15,14 @@ Actor page: [Instagram Transcripts Scraper](https://apify.com/apple_yang/instagr
 }
 ```
 
-| Field | Type | Required | Notes |
+| Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `videoUrl` | string | Yes | Instagram Reel URL to process. |
-| `sessionid` | string | No | Optional Instagram session value. Leave blank unless your integration requires it. |
+| `sessionid` | string | No | Optional Instagram session value. Leave blank unless your integration specifically requires it. |
 
-## Output fields
+## Important output fields
 
-| Field | Notes |
+| Field | Description |
 | --- | --- |
 | `url` | Source Instagram Reel URL or canonical URL returned by the Actor. |
 | `code` | Instagram shortcode or Reel code when available. |
@@ -37,13 +39,13 @@ Actor page: [Instagram Transcripts Scraper](https://apify.com/apple_yang/instagr
 | `userName` | Instagram username. |
 | `userFullName` | Instagram display name. |
 | `avatarUri` | User avatar URL when available. |
-| `text` | Transcript text. This is usually the main field application code consumes. |
+| `text` | Transcript text. This is usually the primary field application code consumes. |
 | `segments` | Transcript segments, typically useful for timestamped transcript displays. |
 | `errMsg` | Error message returned for failed or partially failed processing. |
 | `timestamp` | Processing timestamp or transcript timestamp metadata returned by the Actor. |
 
-## Practical parsing notes
+## Parsing notes
 
-Treat optional metadata fields as nullable. Production integrations should rely primarily on `text`, `segments`, `url`, and error fields, then use engagement and profile metadata opportunistically.
+Treat metadata fields as optional. Production integrations should handle missing values and should preserve `errMsg` for failed records.
 
-Store the raw Actor result during early integration testing. Once your downstream schema is stable, map only the fields your application needs.
+During early validation, store the raw Actor result alongside any normalized fields your application needs.

@@ -1,25 +1,14 @@
-# Environment and secrets
 .env
 .env.*
 !.env.example
 
-# Local output
-sample-output/*
-!sample-output/.gitkeep
+# Ignore generated runtime output
+sample-output/generated/
 
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# OS/editor files
-.DS_Store
-.idea/
-.vscode/
-
-# Dependency and build directories
+# Keep example outputs
+!sample-output/*.json
+!sample-output/*.jsonl
+!sample-output/*.csv
 node_modules/
 dist/
 build/
@@ -28,3 +17,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.DS_Store
+.idea/
+.vscode/
+*.log

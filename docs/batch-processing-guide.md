@@ -1,6 +1,8 @@
 # Batch processing guide
 
-This repository will include batch CSV examples for cURL, Python, Node.js, Java, and Go.
+This guide outlines the planned batch processing approach for the examples in this repository.
+
+This phase is scaffold only. Runnable batch examples will be added in the next phase.
 
 ## Input CSV
 
@@ -26,9 +28,9 @@ Each major language example will show how to:
 
 ## Recommended output shape
 
-For batch processing, keep one result object per input URL. Include the original row number or source URL so failed records can be traced back to the CSV.
+For batch processing, keep one result object per input URL. Include the source URL so failed records can be traced back to the CSV.
 
-Suggested fields for normalized batch output:
+Suggested normalized fields:
 
 - `sourceUrl`
 - `status`
@@ -39,6 +41,6 @@ Suggested fields for normalized batch output:
 
 ## Operational notes
 
-Batch jobs should avoid hard-coded credentials. Read `APIFY_TOKEN` from the environment and keep `.env` out of version control.
+Batch jobs should read `APIFY_TOKEN` from the environment.
 
 For larger CSV files, add rate limiting, retries, checkpointing, and resumable output so a failed run does not require starting from the beginning.

@@ -55,6 +55,18 @@ This repository helps developers validate the Actor quickly and integrate transc
 
 If you want to test Instagram transcript extraction without writing code, try the web demo built on top of this API: [transcript365.com](https://www.transcript365.com).
 
+## AI and MCP workflows
+
+The API examples in this repo can be used as building blocks for AI agents and LLM workflows. The repo now includes documentation for using the Actor through Apify MCP with ChatGPT, Claude, Gemini CLI, Cursor, and VS Code.
+
+- [Use Instagram Reels Transcript API with Apify MCP](docs/use-with-apify-mcp.md)
+- [Use with ChatGPT via Apify MCP](docs/use-with-chatgpt-mcp.md)
+- [Use with Claude via Apify MCP](docs/use-with-claude-mcp.md)
+- [Use with Gemini CLI via Apify MCP](docs/use-with-gemini-cli-mcp.md)
+- [Use with Cursor and VS Code via Apify MCP](docs/use-with-cursor-vscode-mcp.md)
+- [Prompt recipes for Reels analysis](docs/prompt-recipes-for-reels-analysis.md)
+- [AI agent use cases](docs/ai-agent-use-cases.md)
+
 ## When to use this repo
 
 - Build transcript extraction into your own app.

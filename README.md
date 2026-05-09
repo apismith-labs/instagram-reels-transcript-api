@@ -2,7 +2,9 @@
 
 Production-ready developer examples for extracting Instagram Reels transcripts with the Apify Actor [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper).
 
-This repository helps developers validate the Actor quickly and integrate transcript extraction into applications, internal tools, databases, and batch workflows. It includes cURL, Python, Node.js, Java, Go, and Rust examples for single URL and batch CSV processing.
+This repository helps developers validate the Actor and integrate transcript extraction into apps, internal tools, databases, batch workflows, and AI/MCP workflows.
+
+It includes cURL, Python, Node.js, Java, Go, and Rust examples.
 
 ## Apify Actor
 
@@ -43,7 +45,7 @@ This repository helps developers validate the Actor quickly and integrate transc
 ## Language examples
 
 | Language | Single URL | Batch CSV | Directory |
-| --- | --- | --- | --- |
+| -------- | ---------- | --------- | --------- |
 | cURL | Yes | No | [examples/curl/](examples/curl/) |
 | Python | Yes | Yes | [examples/python/](examples/python/) |
 | Node.js | Yes | Yes | [examples/nodejs/](examples/nodejs/) |
@@ -53,13 +55,14 @@ This repository helps developers validate the Actor quickly and integrate transc
 
 ## Live demo
 
-If you want to test Instagram transcript extraction without writing code, try the web demo built on top of this API: [transcript365.com](https://www.transcript365.com).
+If you want to test Instagram transcript extraction without writing code, try the web demo built on top of this API:
+[https://www.transcript365.com](https://www.transcript365.com)
 
 ## AI and MCP workflows
 
 The API examples in this repository can also be used as building blocks for AI agents and LLM workflows.
 
-For MCP-compatible clients, start with the Apify MCP setup guide:
+For MCP-compatible clients, start with the practical setup hub:
 
 - [Use Instagram Reels Transcript API with Apify MCP](docs/use-with-apify-mcp.md)
 
@@ -84,7 +87,7 @@ Analysis and prompt resources:
 
 ## Authentication and input
 
-You must provide your own Apify API token. Do not hard-code `APIFY_TOKEN` in source code, scripts, documentation examples, commits, logs, or shared output files.
+You must provide your own Apify API token. Do not hard-code tokens in source code, scripts, docs, commits, logs, screenshots, or shared output files.
 
 Configuration belongs in `.env`:
 
@@ -93,7 +96,10 @@ Configuration belongs in `.env`:
 - `INSTAGRAM_SESSIONID`
 - `MAX_CONCURRENCY`
 
-Instagram Reel URLs are runtime input: pass a single URL as a CLI argument, or provide many URLs in `sample-data/instagram-reel-urls.csv` for batch examples.
+Instagram Reel URLs are runtime input:
+
+- Single URL examples accept a CLI argument.
+- Batch examples read URLs from `sample-data/instagram-reel-urls.csv`.
 
 ## Actor input
 
@@ -108,9 +114,16 @@ Instagram Reel URLs are runtime input: pass a single URL as a CLI argument, or p
 
 ## Important output fields
 
-Common fields include:
-
-`url`, `code`, `id`, `title`, `videoUrl`, `audioUrl`, `createTime`, `likeCount`, `commentCount`, `userName`, `userFullName`, `text`, `segments`, `errMsg`, `timestamp`.
+- `text`
+- `segments`
+- `title`
+- `userName`
+- `likeCount`
+- `commentCount`
+- `videoUrl`
+- `audioUrl`
+- `errMsg`
+- `url`
 
 See [docs/input-output-fields.md](docs/input-output-fields.md) for the full field reference.
 
@@ -119,10 +132,17 @@ See [docs/input-output-fields.md](docs/input-output-fields.md) for the full fiel
 ```text
 .
 ├── docs/
+│   ├── ai-agent-use-cases.md
 │   ├── batch-processing-guide.md
 │   ├── error-handling-and-retries.md
 │   ├── input-output-fields.md
-│   └── production-integration-checklist.md
+│   ├── production-integration-checklist.md
+│   ├── prompt-recipes-for-reels-analysis.md
+│   ├── use-with-apify-mcp.md
+│   ├── use-with-chatgpt-mcp.md
+│   ├── use-with-claude-mcp.md
+│   ├── use-with-cursor-vscode-mcp.md
+│   └── use-with-gemini-cli-mcp.md
 ├── examples/
 │   ├── curl/
 │   ├── go/
@@ -132,8 +152,12 @@ See [docs/input-output-fields.md](docs/input-output-fields.md) for the full fiel
 │   └── rust/
 ├── sample-data/
 │   └── instagram-reel-urls.csv
-└── sample-output/
-    └── .gitkeep
+├── sample-output/
+│   └── .gitkeep
+├── .env.example
+├── .gitignore
+├── LICENSE
+└── README.md
 ```
 
 ## License

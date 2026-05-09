@@ -11,9 +11,9 @@ This repository helps developers quickly validate the Actor and prepare integrat
 
 ## First-stage scope
 
-This phase includes the repository scaffold and documentation placeholders only.
+This phase includes the repository scaffold, documentation placeholders, and the first runnable cURL quick validation example.
 
-Runnable examples are not included yet. They will be added in the next phase.
+Python, Node.js, Java, and Go examples remain scaffold-only and will be added in later phases.
 
 ## Planned examples
 
@@ -40,10 +40,11 @@ You must provide your own Apify API token.
 Create a local `.env` file from `.env.example`:
 
 ```bash
-APIFY_TOKEN=your_apify_token_here
-APIFY_ACTOR_ID=apple_yang/instagram-transcripts-scraper
-INSTAGRAM_REEL_URL=https://www.instagram.com/reel/your_reel_id/
-INSTAGRAM_SESSIONID=
+APIFY_TOKEN='your_apify_token_here'
+APIFY_ACTOR_ID='apple_yang/instagram-transcripts-scraper'
+INSTAGRAM_REEL_URL='https://www.instagram.com/reel/your_reel_id/'
+INSTAGRAM_SESSIONID=''
+MAX_CONCURRENCY=3
 ```
 
 Do not hard-code `APIFY_TOKEN` in source code, scripts, documentation examples, commits, logs, or shared output files.
@@ -92,4 +93,4 @@ See [docs/input-output-fields.md](docs/input-output-fields.md) for field notes.
 
 ## Current status
 
-Scaffold only. Runnable examples will be added in the next phase.
+The cURL quick validation example is available in `examples/curl/`. Python, Node.js, Java, and Go examples are still scaffold-only.

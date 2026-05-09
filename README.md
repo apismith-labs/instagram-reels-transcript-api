@@ -1,59 +1,81 @@
 # Instagram Reels Transcript API examples using Apify
 
-Developer-focused examples for using the Apify Actor [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper) as an Instagram Reels Transcript API.
+Production-ready developer examples for extracting Instagram Reels transcripts with the Apify Actor [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper).
 
-This repository helps developers quickly validate the Actor and prepare integrations for applications, internal tools, and batch transcript workflows.
+This repository helps developers validate the Actor quickly and integrate transcript extraction into applications, internal tools, databases, and batch workflows. It includes cURL, Python, Node.js, Java, Go, and Rust examples for single URL and batch CSV processing.
 
-## Actor details
+## Apify Actor
 
 - Actor page: [Instagram Transcripts Scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 - Actor ID: `apple_yang/instagram-transcripts-scraper`
 
-## First-stage scope
+## Quick start
 
-This phase includes the repository scaffold, documentation placeholders, and runnable cURL, Python, Node.js, Java, Go, and Rust examples.
+1. Create a local environment file:
 
-All planned first-stage language examples are now available.
+   ```bash
+   cp .env.example .env
+   ```
 
-## Planned examples
+2. Add your Apify token:
 
-This repository will include examples for:
+   ```bash
+   APIFY_TOKEN='your_apify_token_here'
+   APIFY_ACTOR_ID='apple_yang/instagram-transcripts-scraper'
+   INSTAGRAM_SESSIONID=''
+   MAX_CONCURRENCY=3
+   ```
 
-- cURL
-- Python
-- Node.js
-- Java
-- Go
-- Rust
+3. Run the cURL quick validation example with a Reel URL as runtime input:
 
-Every major language example will include:
+   ```bash
+   bash examples/curl/single-url-sync.sh "https://www.instagram.com/reel/your_reel_id/"
+   ```
 
-- Processing a single Instagram Reel URL
-- Processing a batch CSV file
-- Reading configuration from environment variables
-- Writing example output to `sample-output/`
-- Basic error handling and retry guidance
+4. Choose a language example for production integration:
 
-## Authentication
+   - [Python](examples/python/)
+   - [Node.js](examples/nodejs/)
+   - [Java](examples/java/)
+   - [Go](examples/go/)
+   - [Rust](examples/rust/)
 
-You must provide your own Apify API token.
+## Language examples
 
-Create a local `.env` file from `.env.example`:
+| Language | Single URL | Batch CSV | Directory |
+| --- | --- | --- | --- |
+| cURL | Yes | No | [examples/curl/](examples/curl/) |
+| Python | Yes | Yes | [examples/python/](examples/python/) |
+| Node.js | Yes | Yes | [examples/nodejs/](examples/nodejs/) |
+| Java | Yes | Yes | [examples/java/](examples/java/) |
+| Go | Yes | Yes | [examples/go/](examples/go/) |
+| Rust | Yes | Yes | [examples/rust/](examples/rust/) |
 
-```bash
-APIFY_TOKEN='your_apify_token_here'
-APIFY_ACTOR_ID='apple_yang/instagram-transcripts-scraper'
-INSTAGRAM_SESSIONID=''
-MAX_CONCURRENCY=3
-```
+## Live demo
 
-Do not hard-code `APIFY_TOKEN` in source code, scripts, documentation examples, commits, logs, or shared output files.
+If you want to test Instagram transcript extraction without writing code, try the web demo built on top of this API: [transcript365.com](https://www.transcript365.com).
 
-Configuration belongs in `.env`: token, Actor ID, optional session ID, and concurrency. Instagram Reel URLs are runtime input: pass a single URL as a CLI argument, or provide many URLs in `sample-data/instagram-reel-urls.csv` for batch examples.
+## When to use this repo
+
+- Build transcript extraction into your own app.
+- Process batches of Instagram Reel URLs.
+- Feed transcript text into internal tools, databases, or content analysis pipelines.
+- Avoid maintaining your own video download and transcription infrastructure.
+
+## Authentication and input
+
+You must provide your own Apify API token. Do not hard-code `APIFY_TOKEN` in source code, scripts, documentation examples, commits, logs, or shared output files.
+
+Configuration belongs in `.env`:
+
+- `APIFY_TOKEN`
+- `APIFY_ACTOR_ID`
+- `INSTAGRAM_SESSIONID`
+- `MAX_CONCURRENCY`
+
+Instagram Reel URLs are runtime input: pass a single URL as a CLI argument, or provide many URLs in `sample-data/instagram-reel-urls.csv` for batch examples.
 
 ## Actor input
-
-The Actor input uses this shape:
 
 ```json
 {
@@ -62,15 +84,15 @@ The Actor input uses this shape:
 }
 ```
 
-`videoUrl` is runtime input for each request. `sessionid` is optional configuration and should remain blank unless your integration specifically requires it.
+`videoUrl` is the Reel URL for the current request. `sessionid` is optional configuration and should remain blank unless your integration requires it.
 
 ## Important output fields
 
-Actor output can include these fields:
+Common fields include:
 
-`url`, `code`, `pk`, `id`, `title`, `img`, `videoUrl`, `audioUrl`, `createTime`, `likeCount`, `commentCount`, `userPk`, `userName`, `userFullName`, `avatarUri`, `text`, `segments`, `errMsg`, `timestamp`.
+`url`, `code`, `id`, `title`, `videoUrl`, `audioUrl`, `createTime`, `likeCount`, `commentCount`, `userName`, `userFullName`, `text`, `segments`, `errMsg`, `timestamp`.
 
-See [docs/input-output-fields.md](docs/input-output-fields.md) for field notes.
+See [docs/input-output-fields.md](docs/input-output-fields.md) for the full field reference.
 
 ## Repository layout
 
@@ -93,10 +115,6 @@ See [docs/input-output-fields.md](docs/input-output-fields.md) for field notes.
 └── sample-output/
     └── .gitkeep
 ```
-
-## Current status
-
-The cURL quick validation example is available in `examples/curl/`. Python examples are available in `examples/python/`. Node.js examples are available in `examples/nodejs/`. Java examples are available in `examples/java/`. Go examples are available in `examples/go/`. Rust examples are available in `examples/rust/`.
 
 ## License
 

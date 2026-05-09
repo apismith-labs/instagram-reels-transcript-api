@@ -1,0 +1,15 @@
+{
+  "name": "instagram-reels-transcript-api-nodejs-examples",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "single": "node single-url.mjs",
+    "batch": "node batch-csv.mjs"
+  },
+  "dependencies": {
+    "apify-client": "^2.12.6",
+    "dotenv": "^16.4.7",
+    "p-limit": "^6.2.0"
+  }
+}

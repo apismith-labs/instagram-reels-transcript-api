@@ -2,7 +2,9 @@
 
 ## What this guide covers
 
-This guide shows how Gemini CLI users can connect to Apify MCP and use the Actor `apple_yang/instagram-transcripts-scraper` in terminal-based AI workflows.
+This guide shows how Gemini CLI users can connect to Apify MCP and use the
+Actor `apple_yang/instagram-transcripts-scraper` in terminal-based AI
+workflows.
 
 This repository does not provide a custom Gemini extension or custom MCP server.
 
@@ -48,7 +50,7 @@ Actor-focused version:
     "apify-instagram-transcript": {
       "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper",
       "headers": {
-        "Authorization": "Bearer <APIFY_TOKEN>"
+        "Authorization": "Bearer YOUR_APIFY_TOKEN"
       }
     }
   }
@@ -64,7 +66,7 @@ Actor-focused version:
       "command": "npx",
       "args": ["-y", "@apify/actors-mcp-server@latest"],
       "env": {
-        "APIFY_TOKEN": "<APIFY_TOKEN>"
+        "APIFY_TOKEN": "YOUR_APIFY_TOKEN"
       }
     }
   }

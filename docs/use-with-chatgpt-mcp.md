@@ -2,7 +2,8 @@
 
 ## What this guide covers
 
-This guide shows how to connect a ChatGPT developer workflow to Apify MCP and use the Actor `apple_yang/instagram-transcripts-scraper`.
+This guide shows how to connect a ChatGPT developer workflow to Apify MCP and
+use the Actor `apple_yang/instagram-transcripts-scraper`.
 
 This repository does not provide a Custom GPT Action, custom MCP server, hosted backend proxy, or OpenAPI proxy yet.
 
@@ -27,14 +28,18 @@ Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/appl
 6. Authentication: OAuth where available.
 7. Authorize Apify in the browser.
 
-Some ChatGPT connector settings may vary. If the connector cannot be edited after creation, create a new connector with the desired tools URL.
+Some ChatGPT connector settings may vary.
+
+If the connector cannot be edited after creation, create a new connector with
+the desired tools URL.
 
 ## Use it in a chat
 
 Start a new chat, add or select the Apify connector, then ask ChatGPT to run or locate the Actor.
 
 ```text
-Use the Apify MCP connector to run the Actor apple_yang/instagram-transcripts-scraper with this public Instagram Reel URL:
+Use the Apify MCP connector to run the Actor
+apple_yang/instagram-transcripts-scraper with this public Instagram Reel URL:
 
 https://www.instagram.com/reel/your_reel_id/
 
@@ -65,7 +70,10 @@ Ask ChatGPT to:
 Troubleshooting prompt:
 
 ```text
-Search Apify Actors for "instagram transcripts scraper". If you find apple_yang/instagram-transcripts-scraper, fetch its Actor details, inspect the input schema, then call it with this input:
+Search Apify Actors for "instagram transcripts scraper".
+
+If you find apple_yang/instagram-transcripts-scraper, fetch its Actor details,
+inspect the input schema, then call it with this input:
 {
   "videoUrl": "https://www.instagram.com/reel/your_reel_id/",
   "sessionid": ""

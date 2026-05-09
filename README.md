@@ -1,8 +1,12 @@
 # Instagram Reels Transcript API examples using Apify
 
-Production-ready developer examples for extracting Instagram Reels transcripts with the Apify Actor [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper).
+Production-ready developer examples for extracting Instagram Reels transcripts with
+the Apify Actor
+[apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper).
 
-This repository helps developers validate the Actor and integrate transcript extraction into apps, internal tools, databases, batch workflows, and AI/MCP workflows.
+This repository helps developers validate the Actor and integrate transcript
+extraction into apps, internal tools, databases, batch workflows, and AI/MCP
+workflows.
 
 It includes cURL, Python, Node.js, Java, Go, and Rust examples.
 
@@ -87,7 +91,10 @@ Analysis and prompt resources:
 
 ## Authentication and input
 
-You must provide your own Apify API token. Do not hard-code tokens in source code, scripts, docs, commits, logs, screenshots, or shared output files.
+You must provide your own Apify API token.
+
+Do not hard-code tokens in source code, scripts, docs, commits, logs,
+screenshots, or shared output files.
 
 Configuration belongs in `.env`:
 
@@ -110,7 +117,10 @@ Instagram Reel URLs are runtime input:
 }
 ```
 
-`videoUrl` is the Reel URL for the current request. `sessionid` is optional configuration and should remain blank unless your integration requires it.
+`videoUrl` is the Reel URL for the current request.
+
+`sessionid` is optional configuration and should remain blank unless your
+integration requires it.
 
 ## Important output fields
 

@@ -2,9 +2,13 @@
 
 ## What this guide covers
 
-This guide shows how to expose the Apify Actor `apple_yang/instagram-transcripts-scraper` to MCP-compatible clients through Apify MCP.
+This guide shows how to expose the Apify Actor
+`apple_yang/instagram-transcripts-scraper` to MCP-compatible clients through
+Apify MCP.
 
-Use this when you want an AI client or agent to call the Actor, pass an Instagram Reel URL, retrieve transcript JSON, and then summarize, classify, translate, or repurpose the transcript.
+Use this when you want an AI client or agent to call the Actor, pass an
+Instagram Reel URL, retrieve transcript JSON, and then summarize, classify,
+translate, or repurpose the transcript.
 
 Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
@@ -30,7 +34,10 @@ Use the hosted Apify MCP server when your client supports remote MCP server URLs
 }
 ```
 
-This uses OAuth where the client supports it. The user signs in to Apify in the browser, which avoids pasting API tokens into config files.
+This uses OAuth where the client supports it.
+
+The user signs in to Apify in the browser, which avoids pasting API tokens into
+config files.
 
 ## Alternative setup: Hosted Apify MCP with Bearer token
 
@@ -42,7 +49,7 @@ Use this only in secure local or server-side configuration:
     "apify": {
       "url": "https://mcp.apify.com",
       "headers": {
-        "Authorization": "Bearer <APIFY_TOKEN>"
+        "Authorization": "Bearer YOUR_APIFY_TOKEN"
       }
     }
   }
@@ -75,14 +82,21 @@ Actor-focused Bearer token configuration:
     "apify-instagram-transcript": {
       "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper",
       "headers": {
-        "Authorization": "Bearer <APIFY_TOKEN>"
+        "Authorization": "Bearer YOUR_APIFY_TOKEN"
       }
     }
   }
 }
 ```
 
-If a client does not expose the Actor directly as a named tool, use the generic Apify MCP tools such as `search-actors`, `fetch-actor-details`, `add-actor`, `call-actor`, and `get-actor-output`.
+If a client does not expose the Actor directly as a named tool, use the generic
+Apify MCP tools such as:
+
+- `search-actors`
+- `fetch-actor-details`
+- `add-actor`
+- `call-actor`
+- `get-actor-output`
 
 ## Local stdio setup
 
@@ -95,7 +109,7 @@ Use local stdio if your client does not support remote MCP server URLs:
       "command": "npx",
       "args": ["-y", "@apify/actors-mcp-server@latest"],
       "env": {
-        "APIFY_TOKEN": "<APIFY_TOKEN>"
+        "APIFY_TOKEN": "YOUR_APIFY_TOKEN"
       }
     }
   }
@@ -110,7 +124,8 @@ There are two common flows.
 
 ### Flow A: Direct Actor tool
 
-If the Actor is loaded as a specific tool, ask the AI client to call `apple_yang/instagram-transcripts-scraper` directly with the Actor input JSON.
+If the Actor is loaded as a specific tool, ask the AI client to call
+`apple_yang/instagram-transcripts-scraper` directly with the Actor input JSON.
 
 ### Flow B: Generic Apify tools
 
@@ -155,7 +170,13 @@ After the Actor finishes, retrieve the full output if needed and summarize:
 ```
 
 ```text
-Find the Apify Actor apple_yang/instagram-transcripts-scraper, inspect its input schema, run it with this public Instagram Reel URL, and return the transcript text, segment count, creator username, and any errMsg.
+Find the Apify Actor apple_yang/instagram-transcripts-scraper.
+
+Inspect its input schema, run it with this public Instagram Reel URL, and return:
+- transcript text
+- segment count
+- creator username
+- any errMsg
 ```
 
 ## Output fields to expect
@@ -173,15 +194,88 @@ Find the Apify Actor apple_yang/instagram-transcripts-scraper, inspect its input
 
 ## Troubleshooting
 
-| Issue | Likely causes | Practical next steps |
-| --- | --- | --- |
-| Actor tool does not appear | The client did not load the Actor-specific `tools=` URL, or the client only exposes generic Apify tools. | Use `https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper`, reconnect the MCP server, or use `search-actors` and `call-actor`. |
-| Authentication error | OAuth connection is incomplete, token is missing, or token is invalid. | Reconnect OAuth, check secure config, or replace `<APIFY_TOKEN>` with a valid token in local/server-side config. |
-| Actor run takes too long | Transcript extraction can take time depending on content and platform response. | Wait for completion, ask the client to check run status, or use direct API examples for production timeouts and retries. |
-| Output preview is incomplete | Some MCP clients truncate tool output previews. | Ask the client to call `get-actor-output` or fetch the dataset items. |
-| Empty transcript or `errMsg` | Reel is unavailable, private, unsupported, or has no usable transcript. | Check `errMsg`, verify the URL is public or authorized, and test another Reel URL. |
-| 429 / rate limits | Too many calls or platform/API limits. | Lower concurrency, retry with backoff, and monitor Apify usage. |
-| Client cannot use remote MCP URL | The client may only support stdio MCP servers. | Use the local stdio setup with `npx` and `APIFY_TOKEN`. |
+### Actor tool does not appear
+
+Likely causes:
+
+- The client did not load the Actor-specific `tools=` URL.
+- The client only exposes generic Apify tools.
+
+Practical next steps:
+
+- Use `https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper`.
+- Reconnect the MCP server.
+- Use `search-actors` and `call-actor`.
+
+### Authentication error
+
+Likely causes:
+
+- OAuth connection is incomplete.
+- Token is missing or invalid.
+
+Practical next steps:
+
+- Reconnect OAuth.
+- Check secure config.
+- Replace `YOUR_APIFY_TOKEN` with a valid token in local or server-side config.
+
+### Actor run takes too long
+
+Likely causes:
+
+- Transcript extraction can take time depending on content and platform response.
+
+Practical next steps:
+
+- Wait for completion.
+- Ask the client to check run status.
+- Use direct API examples for production timeouts and retries.
+
+### Output preview is incomplete
+
+Likely causes:
+
+- Some MCP clients truncate tool output previews.
+
+Practical next steps:
+
+- Ask the client to call `get-actor-output`.
+- Fetch the dataset items.
+
+### Empty transcript or `errMsg`
+
+Likely causes:
+
+- Reel is unavailable, private, unsupported, or has no usable transcript.
+
+Practical next steps:
+
+- Check `errMsg`.
+- Verify the URL is public or authorized.
+- Test another Reel URL.
+
+### 429 / rate limits
+
+Likely causes:
+
+- Too many calls or platform/API limits.
+
+Practical next steps:
+
+- Lower concurrency.
+- Retry with backoff.
+- Monitor Apify usage.
+
+### Client cannot use remote MCP URL
+
+Likely causes:
+
+- The client may only support stdio MCP servers.
+
+Practical next steps:
+
+- Use the local stdio setup with `npx` and `APIFY_TOKEN`.
 
 ## Security notes
 

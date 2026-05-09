@@ -2,9 +2,12 @@
 
 ## What this guide covers
 
-This guide shows how to use the Actor `apple_yang/instagram-transcripts-scraper` in Claude-compatible MCP workflows through Apify MCP.
+This guide shows how to use the Actor
+`apple_yang/instagram-transcripts-scraper` in Claude-compatible MCP workflows
+through Apify MCP.
 
-This repository does not include a separate Claude-specific SDK wrapper, Claude Skill, custom MCP server, or hosted proxy yet.
+This repository does not include a separate Claude-specific SDK wrapper,
+Claude Skill, custom MCP server, or hosted proxy yet.
 
 Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
@@ -50,7 +53,7 @@ Actor-focused configuration:
     "apify-instagram-transcript": {
       "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper",
       "headers": {
-        "Authorization": "Bearer <APIFY_TOKEN>"
+        "Authorization": "Bearer YOUR_APIFY_TOKEN"
       }
     }
   }
@@ -68,7 +71,7 @@ Only use Bearer token config in secure local or server-side settings. Do not com
       "command": "npx",
       "args": ["-y", "@apify/actors-mcp-server@latest"],
       "env": {
-        "APIFY_TOKEN": "<APIFY_TOKEN>"
+        "APIFY_TOKEN": "YOUR_APIFY_TOKEN"
       }
     }
   }
@@ -104,7 +107,9 @@ After the Actor finishes, retrieve the full output if needed and produce:
 
 ## Claude Skill note
 
-This repository does not include a Claude Skill yet. A Claude Skill may be added later as a separate reusable workflow package.
+This repository does not include a Claude Skill yet.
+
+A Claude Skill may be added later as a separate reusable workflow package.
 
 ## Security notes
 

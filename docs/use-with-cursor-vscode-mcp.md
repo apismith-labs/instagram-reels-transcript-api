@@ -2,9 +2,13 @@
 
 ## What this guide covers
 
-This guide shows how developers can use Apify MCP from AI coding assistants to inspect Actor output and generate integration code.
+This guide shows how developers can use Apify MCP from AI coding assistants to
+inspect Actor output and generate integration code.
 
-The Actor can help coding assistants inspect transcript output and generate integration code, database schemas, ETL steps, or data pipeline plans. This repository does not include a custom IDE extension.
+The Actor can help coding assistants inspect transcript output and generate
+integration code, database schemas, ETL steps, or data pipeline plans.
+
+This repository does not include a custom IDE extension.
 
 Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
@@ -38,7 +42,7 @@ Bearer token version:
     "apify-instagram-transcript": {
       "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper",
       "headers": {
-        "Authorization": "Bearer <APIFY_TOKEN>"
+        "Authorization": "Bearer YOUR_APIFY_TOKEN"
       }
     }
   }
@@ -59,7 +63,10 @@ Generic VS Code user-level MCP configuration:
 }
 ```
 
-Exact file location may vary by extension or client. Prefer user-level config or secure workspace config. Do not commit token-bearing workspace files.
+Exact file location may vary by extension or client.
+
+Prefer user-level config or secure workspace config. Do not commit token-bearing
+workspace files.
 
 ## Local stdio alternative
 
@@ -70,7 +77,7 @@ Exact file location may vary by extension or client. Prefer user-level config or
       "command": "npx",
       "args": ["-y", "@apify/actors-mcp-server@latest"],
       "env": {
-        "APIFY_TOKEN": "<APIFY_TOKEN>"
+        "APIFY_TOKEN": "YOUR_APIFY_TOKEN"
       }
     }
   }
@@ -80,15 +87,27 @@ Exact file location may vary by extension or client. Prefer user-level config or
 ## Example coding assistant prompts
 
 ```text
-Use the Apify MCP Actor apple_yang/instagram-transcripts-scraper to inspect this public Instagram Reel URL. Then generate a TypeScript interface for the output fields.
+Use the Apify MCP Actor apple_yang/instagram-transcripts-scraper to inspect this
+public Instagram Reel URL.
+
+Then generate a TypeScript interface for the output fields.
 ```
 
 ```text
-Run the Instagram transcript Actor with this Reel URL, inspect the returned JSON, and create a PostgreSQL schema for storing transcript records.
+Run the Instagram transcript Actor with this Reel URL.
+
+Inspect the returned JSON and create a PostgreSQL schema for storing transcript
+records.
 ```
 
 ```text
-Use this Actor output to write a batch-processing pipeline that stores transcript text, segments, creator username, like count, comment count, and errMsg.
+Use this Actor output to write a batch-processing pipeline that stores:
+- transcript text
+- segments
+- creator username
+- like count
+- comment count
+- errMsg
 ```
 
 ```text

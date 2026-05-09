@@ -11,7 +11,7 @@ This repository helps developers quickly validate the Actor and prepare integrat
 
 ## First-stage scope
 
-This phase includes the repository scaffold, documentation placeholders, and runnable cURL, Python, Node.js, Java, and Go examples.
+This phase includes the repository scaffold, documentation placeholders, and runnable cURL, Python, Node.js, Java, Go, and Rust examples.
 
 All planned first-stage language examples are now available.
 
@@ -24,6 +24,7 @@ This repository will include examples for:
 - Node.js
 - Java
 - Go
+- Rust
 
 Every major language example will include:
 
@@ -85,7 +86,8 @@ See [docs/input-output-fields.md](docs/input-output-fields.md) for field notes.
 │   ├── go/
 │   ├── java/
 │   ├── nodejs/
-│   └── python/
+│   ├── python/
+│   └── rust/
 ├── sample-data/
 │   └── instagram-reel-urls.csv
 └── sample-output/
@@ -94,4 +96,4 @@ See [docs/input-output-fields.md](docs/input-output-fields.md) for field notes.
 
 ## Current status
 
-The cURL quick validation example is available in `examples/curl/`. Python examples are available in `examples/python/`. Node.js examples are available in `examples/nodejs/`. Java examples are available in `examples/java/`. Go examples are available in `examples/go/`.
+The cURL quick validation example is available in `examples/curl/`. Python examples are available in `examples/python/`. Node.js examples are available in `examples/nodejs/`. Java examples are available in `examples/java/`. Go examples are available in `examples/go/`. Rust examples are available in `examples/rust/`.

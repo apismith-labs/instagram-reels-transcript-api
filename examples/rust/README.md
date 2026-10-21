@@ -2,6 +2,8 @@
 
 These examples show how to call the Apify Actor `apple_yang/instagram-transcripts-scraper` from Rust using `tokio`, `reqwest`, `serde`, `dotenvy`, and `csv`.
 
+**Experimental only:** this sample is not production-reliable. Its batch flow can repeat Actor creation after a post-creation error, and business error or missing transcript handling is incomplete. Reconcile timed-out Runs manually before rerunning to avoid duplicate charges.
+
 ## Requirements
 
 - Rust 1.75 or newer

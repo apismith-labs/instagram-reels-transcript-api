@@ -2,6 +2,8 @@
 
 These examples show how to call the Apify Actor `apple_yang/instagram-transcripts-scraper` from Java using OkHttp, Jackson, and dotenv-java.
 
+**Experimental only:** this sample is not production-reliable. Its run-and-dataset flow has no durable recovery journal, and business error or missing transcript handling is incomplete. A timeout after Run creation may require manual reconciliation; do not blindly rerun because that can create another billable Run.
+
 ## Requirements
 
 - Java 17

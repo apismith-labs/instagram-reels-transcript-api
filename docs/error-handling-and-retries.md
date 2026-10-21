@@ -1,44 +1,195 @@
 # Error handling and retries
 
-This document captures the baseline error handling expectations for future examples.
+This document describes how the **Python and Node.js examples in this repository** classify
+results, retry requests, and recover a Run. It documents implemented behaviour only; anything not
+implemented is listed explicitly under [Not implemented](#not-implemented).
 
-This phase is scaffold only. Runnable retry logic will be added in the next phase.
+Two distinctions drive everything below:
 
-## Error sources
+1. **An HTTP 200 is not a business success.** The Actor can accept a request, finish the Run, and
+   still return an item whose `errMsg` says the video could not be transcribed.
+2. **Creating a Run and reading its result are separate stages.** A failure while reading must
+   never cause another Run to be created, because Runs are billable.
 
-Common failure points include:
+## Result statuses
 
-- Missing or invalid `APIFY_TOKEN`
-- Invalid Instagram Reel URL
-- Deleted, private, unavailable, or region-limited Reel
-- Temporary network failure
-- Actor run timeout
-- Empty transcript result
-- Output record containing `errMsg`
+Every row or call resolves to exactly one status.
 
-## Retry strategy
+| Status | Meaning | Single-URL exit code |
+| --- | --- | --- |
+| `success` | At least one item has non-empty string `text` and no item carries a non-empty `errMsg`. | `0` |
+| `actor_error` | At least one item carries a non-empty `errMsg`. Checked **before** `text`, so an item with both is still a failure. | `4` |
+| `empty` | The Dataset returned no items at all. | `5` |
+| `no_transcript` | Items exist, but no transcript text: `text` is null, missing, or an empty string. | `6` |
+| `unknown` | The response did not look like the expected item list, or `text` had an unsupported type (for example the number `0`). | `7` |
+| `transport_error` | A recognisable API/network error while reading, or the overall deadline was exceeded. | `8` |
+| `run_failed` | The Run ended `FAILED`, `TIMED-OUT`, or `ABORTED`. | `9` |
+| `creation_unknown` | The Run-creation POST outcome is unknown — the Run may or may not exist. | `10` |
 
-Use retries for temporary failures, not permanent input problems.
+Additional exit codes: `2` for configuration or argument errors (missing token, missing URL,
+unknown Run ID in the journal). Only `0` means a transcript was produced.
 
-Recommended first-pass strategy:
+Configuration errors exit `2` for both languages. A missing or non-numeric `MAX_CONCURRENCY`
+exits `2` in Node.js; Python raises on a non-integer value rather than reporting a clean code.
 
-- Retry network failures and transient HTTP errors.
-- Retry Actor runs that time out or fail due to temporary platform issues.
-- Do not retry clearly invalid URLs without changing the input.
-- Do not retry rows that return a stable `errMsg` indicating unavailable content.
-- Use exponential backoff with a maximum retry count.
+### Batch exit codes
 
-## Batch failure records
+The CSV batch scripts use a different contract:
 
-For batch workflows, preserve failed rows in the output with enough context to investigate later:
+| Code | Meaning |
+| --- | --- |
+| `0` | Every row succeeded |
+| `1` | At least one row ended in any non-`success` status |
+| `2` | Configuration error |
 
-- Original `videoUrl`
-- Row number
-- Error type
-- `errMsg` when returned by the Actor
-- Attempt count
-- Timestamp
+Per-row detail comes from the printed summary (`processed`, `failed`, and a count per status) and
+from the errors CSV, not from the process exit code alone.
 
-## Token safety
+### Notes on specific statuses
 
-Never print `APIFY_TOKEN` in logs or error messages. If your application logs request configuration, redact secrets before writing logs.
+- **`no_transcript` does not trigger another billable Run by default.** The scripts report the
+  state and stop; they do not re-run the Actor hoping for text.
+
+  That is a **default policy, not a proof that a retry is futile.** The state only says that no
+  `text` came back this time. A genuinely silent video will probably stay silent, but content can
+  also be temporarily unavailable — removed and re-posted, made private, geo- or login-gated, or
+  hit by a transient extraction failure — and for those cases a later attempt *may* succeed. If
+  you decide to retry, do it deliberately: bound the attempt count, run it yourself, and accept
+  that each attempt is a fresh Run. Do not wire it into an unbounded loop.
+- **Profile results without `text` are not transcription failures.** Profile-mode items carry
+  post metadata only. If you process Profile output, classify it against the Profile contract
+  from [input-output-fields.md](input-output-fields.md), not against these transcript statuses.
+- **`unknown` should alert you.** It usually means the response shape changed, which is a signal
+  to re-check the Actor contract rather than to retry.
+
+## Retry rules by stage
+
+| Stage | Retried? | Behaviour |
+| --- | --- | --- |
+| Create Run (`POST /acts/{id}/runs`) | No automatic retry | One attempt. Any HTTP 429 is `creation_unknown` because acceptance semantics are unverified; reconcile before considering a new Run. |
+| Create Run, outcome unknown | No | Transport failure, timeout, unparsable body, or 5xx is treated as ambiguous → `creation_unknown`, with no automatic re-POST. |
+| Permanent client errors | No | `400`, `401`, `403` and other non-429 4xx stop immediately with `transport_error`. Repeating them cannot help. |
+| Poll Run (`GET /actor-runs/{id}`) | Yes | Up to 4 attempts on `429`, `5xx`, or a transport failure, with exponential backoff (capped at 8s) or the server's `Retry-After` (seconds or HTTP-date). |
+| Read Dataset (`GET /datasets/{id}/items`) | Yes | Same rule. Re-reads the same Dataset; never re-creates the Run. |
+| Overall deadline | — | 15 minutes per call by default. Once exceeded, the call stops and returns a recoverable status together with the `runId`. |
+
+Polling interval between status reads is about 2 seconds. An exceeded deadline returns
+`transport_error` with whatever Run/Dataset IDs are already known; it does **not** claim the Actor
+Run was cancelled — nothing in these examples cancels a Run.
+
+### HTTP 429 on Run creation
+
+The scripts do not automatically retry a Run-creation POST after HTTP 429. The Actor/platform's
+acceptance semantics have not been verified, and repeating the request could create duplicate
+billable work. The response is recorded as `creation_unknown`; reconcile the Run history before
+deciding whether to submit a new request.
+
+Keep these claims separate:
+
+| Claim | Status |
+| --- | --- |
+| The scripts automatically retry a Run-creation POST after `429` | No. |
+| A `429` means the server definitely created no Run | **Unverified.** |
+| Therefore a `429` means the request is definitely safe to repeat | **Not established.** |
+
+Intermediaries can make a response hard to interpret: a proxy or gateway may return a status
+after forwarding a request. Treat the outcome as potentially ambiguous and check the Actor's
+run history before starting another Run.
+
+The ambiguous case is handled conservatively for the same reason: a POST whose response never
+arrived is reported as `creation_unknown` and is not retried automatically, because a second Run
+may already exist.
+
+## Journal and recovery
+
+Each language writes an append-only JSONL journal:
+
+```text
+sample-output/generated/python-run-journal.jsonl
+sample-output/generated/nodejs-run-journal.jsonl
+```
+
+| Property | Detail |
+| --- | --- |
+| Record contents | `rowId`, `sourceUrl`, `actorId`, `runId`, `datasetId`, `stage`, `status`, `updatedAt`, and a filtered `error` message |
+| Write timing | One line per stage transition, flushed and `fsync`ed before the next stage |
+| Permissions | Set to mode `0600` on append (owner read/write only) |
+| Sensitive data | Error text is truncated and credential-like patterns (Bearer tokens, `token=`, `sessionid:`, `authorization`, `cookie`, `password`, `api_key`) are redacted before writing |
+
+JSONL results, error CSVs, and single-result JSON files are also written with mode `0600`; existing
+files have their permissions tightened before replacement.
+
+If a Dataset returns an empty array after the Run succeeds, the runners wait and re-read that
+same Dataset up to twice before classifying it as `empty`.
+
+### Resuming
+
+```bash
+python examples/python/single_url.py --resume RUN_ID
+node examples/nodejs/single-url.mjs --resume RUN_ID
+```
+
+Conditions and limits:
+
+- The Run ID, Actor ID, source URL, and row ID must match a journal record; missing or mismatched
+  records and malformed JSONL fail closed with exit `2`.
+- Resume re-uses the journal's `sourceUrl` and `datasetId`, polls the **existing** Run, and sends
+  no Run-creation request.
+- Resume exists **only for the single-URL scripts**. The CSV batch scripts have no resume flag,
+  and there is no batch-level checkpoint or replay.
+- Resume is per-machine and per-file. There is no distributed lock, no cross-process de-duplication,
+  and no guarantee that two resumptions of the same Run will not both run.
+
+### Recovering after an unknown POST
+
+There is no automatic path. The journal keeps the row identity (`rowId`, `sourceUrl`) but no Run
+ID, because none was received. To reconcile:
+
+1. Look up recent Runs for the Actor in the Apify Console or via the API.
+2. Match by input URL and start time.
+3. If a Run exists, read its Dataset (or resume it explicitly with that Run ID).
+4. Only if no Run exists should you re-submit — and treat that as a deliberate, billable action.
+
+## Output sanitisation
+
+Before persisting results, credential-like keys are removed recursively (`token`, `sessionid`,
+`cookie`, `authorization`, `password`, `secret`, `accessToken`, `refreshToken`, `apiKey`, in
+snake, kebab, and camel forms), and string values are scrubbed for common credential assignments.
+This reduces accidental leakage; it is not a substitute for treating raw Actor output as
+sensitive, and it does not inspect every possible encoding.
+
+## Not implemented
+
+Do not assume these exist:
+
+- **Dataset pagination.** One page per GET; only the first page is read (an empty array is
+  rechecked twice on the same Dataset). Fine for the
+  single-URL flow, a real risk for large native-bulk results, which are not implemented here yet.
+- **Run-level limits.** No `maxItems`, `maxTotalChargeUsd`, or timeout is passed to the Actor
+  Run; only the client-side 15-minute deadline exists.
+- **Run cancellation.** Nothing cancels a Run on deadline expiry.
+- **Native bulk, Profile mode, batch resume, checkpoint replay.**
+- **Downstream integration.** Errors never trigger LLM calls or other downstream processing in
+  these examples, because nothing downstream exists.
+
+## Auxiliary languages
+
+Java, Go, and Rust keep simpler implementations and have **not** received this work. Known
+differences, as of the current code:
+
+- A record whose status is `actor_error` or `empty` is still counted as a success in their
+  progress counters, and their failure lists only contain thrown exceptions.
+- A failure part-way through the flow can restart the whole call — including the Run-creation
+  POST — which risks an additional billable Run.
+
+Their READMEs carry an experimental warning. Treat them as call references, not as
+production-ready clients.
+
+## Still unverified
+
+- Real REST response envelopes, error bodies, and whether the Actor returns `errMsg` alongside a
+  partial `text`.
+- Dataset visibility timing right after `SUCCEEDED` (a first read could legitimately be empty).
+- Server-side `Retry-After` behaviour and rate-limit semantics of this specific Actor.
+- Whether any of the above prevents duplicate billing under real network failure.
+- Actual charged events per Run and whether failed items are billed.

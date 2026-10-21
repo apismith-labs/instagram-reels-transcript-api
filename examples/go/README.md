@@ -2,6 +2,8 @@
 
 These examples show how to call the Apify Actor `apple_yang/instagram-transcripts-scraper` from Go using `net/http`, `encoding/json`, and `godotenv`.
 
+**Experimental only:** this sample is not production-reliable. Its batch flow can repeat Actor creation after a post-creation error, and business error or missing transcript handling is incomplete. Reconcile timed-out Runs manually before rerunning to avoid duplicate charges.
+
 ## Requirements
 
 - Go 1.22 or newer

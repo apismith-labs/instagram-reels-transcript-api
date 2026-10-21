@@ -1,0 +1,75 @@
+{
+  "contractVersion": "1.0.0",
+  "evidenceStatus": "normalized_from_audit_report",
+  "actor": {
+    "id": "apple_yang/instagram-transcripts-scraper",
+    "buildNumber": "0.0.50",
+    "buildId": "aJLRmMdQapLQRT4sJ",
+    "buildFinishedAtUtc": "2026-10-20T02:49:01.717Z",
+    "retrievedAt": "2026-10-20",
+    "sources": [
+      "https://api.apify.com/v2/actor-builds/aJLRmMdQapLQRT4sJ",
+      "https://api.apify.com/v2/actors/apple_yang~instagram-transcripts-scraper/builds/default",
+      "docs/audit/actor_audit_20261020.md"
+    ]
+  },
+  "schemaProvenance": {
+    "input": "Normalized from fixed build inputSchema as recorded in docs/audit/actor_audit_20261020.md; original build JSON was not available locally during Batch A.",
+    "dataset": "Normalized from fixed build actorDefinition.storages.dataset.fields as recorded in docs/audit/actor_audit_20261020.md; original build JSON was not available locally during Batch A.",
+    "actorOutput": "Normalized from fixed build actorDefinition.output as recorded in docs/audit/actor_audit_20261020.md; original build JSON was not available locally during Batch A.",
+    "warning": "This is an audit-derived conservative contract, not a verbatim copy of the upstream schema. It does not assert runtime defaults or behavior."
+  },
+  "input": {
+    "required": [],
+    "modeRule": {
+      "kind": "client_constraint",
+      "exactlyOneOf": ["videoUrl", "bulkUrls", "usernames"],
+      "upstreamEnforced": false
+    },
+    "fields": {
+      "videoUrl": {"type": "string", "prefill": "https://www.instagram.com/p/DULBkEngpxg", "runtimeDefault": "unknown"},
+      "bulkUrls": {"type": "array", "items": "string (audit-described; original items schema unavailable)", "prefill": [], "runtimeDefault": "unknown", "documentedFreeLimitPerRun": 5, "documentedPaidLimit": "unlimited; practical resource bound unknown"},
+      "usernames": {"type": "array", "items": "string (audit-described; original items schema unavailable)", "prefill": ["bbcnews"], "runtimeDefault": "unknown"},
+      "resultsLimit": {"type": "integer", "prefill": 12, "runtimeDefault": "unknown", "multiAccountScope": "unknown"},
+      "onlyPostsNewerThan": {"type": "string", "documentedFormats": ["YYYY-MM-DD", "relative day/week/month/year", "full ISO timestamp"], "schemaPatternAcceptsFullIso": false, "runtimeBehavior": "unknown", "timezone": "UTC per documentation"},
+      "skipPinnedPosts": {"type": "boolean", "prefill": false, "runtimeDefault": "unknown"},
+      "includeSharesCount": {"type": "boolean", "prefill": false, "availability": "paid plan per documentation", "outputFieldName": "unknown"},
+      "sessionid": {"type": "string per README", "schemaDeclared": false, "runtimeBehavior": "unknown", "sensitive": true}
+    }
+  },
+  "modes": {
+    "transcript_single": {"input": {"requiredByClient": ["videoUrl"], "mustOmit": ["bulkUrls", "usernames"]}, "output": "transcript dataset item(s); exact cardinality and nullable fields are unverified"},
+    "transcript_bulk": {"input": {"requiredByClient": ["bulkUrls"], "mustOmit": ["videoUrl", "usernames"], "items": "string[]"}, "output": "dataset items per processed URL are documented; mapping, ordering and partial-failure behavior are unverified"},
+    "profile_posts": {"input": {"requiredByClient": ["usernames"], "mustOmit": ["videoUrl", "bulkUrls"], "items": "string[]", "optional": ["resultsLimit", "onlyPostsNewerThan", "skipPinnedPosts", "includeSharesCount"]}, "output": "profile post metadata; no transcript is generated; text/audioUrl may be absent"}
+  },
+  "actorOutput": {
+    "properties": {"results": {"type": "string", "template": "{{links.apiDefaultDatasetUrl}}/items"}},
+    "semantics": "Dataset URL link; not an inline output-record schema"
+  },
+  "dataset": {
+    "type": "object",
+    "required": ["url", "pk", "id", "videoUrl", "audioUrl"],
+    "fields": {
+      "url": "string", "code": "string", "pk": "string", "id": "string", "title": "string", "img": "string", "videoUrl": "string", "audioUrl": "string", "duration": "number", "createTime": "integer", "likeCount": "integer", "commentCount": "integer", "userPk": "string", "userName": "string", "userFullName": "string", "avatarUri": "string", "text": "string", "segments": {"type": "array", "items": {"start": "number", "end": "number", "text": "string"}}, "errMsg": "string", "timestamp": "string", "caption": "string", "ownerUsername": "string", "type": "string", "commentsCount": "integer", "videoPlayCount": "integer", "videoDuration": "number", "hashtags": {"type": "array", "items": "string"}, "mentions": {"type": "array", "items": "string"}
+    },
+    "modeNotes": {
+      "transcript": "text and segments apply to transcript extraction; timestamp documented as ISO string",
+      "profile": "caption/ownerUsername/type/commentsCount/videoPlayCount/videoDuration/hashtags/mentions; timestamp labeled Unix in Profile view although Dataset type is string; actual value and unit unverified",
+      "includeSharesCount": "output key unknown",
+      "profileMayOmit": ["text", "audioUrl", "videoUrl", "segments"]
+    },
+    "nullability": "Runtime missing/null/empty behavior is unknown; required declarations conflict with Profile view. Consumers must tolerate absent values."
+  },
+  "knownUnknowns": [
+    "sessionid is described in README but absent from fixed build input schema",
+    "full ISO timestamp is documented but rejected by the recorded schema regex; runtime behavior is unknown",
+    "timestamp meaning differs between Transcript and Profile documentation",
+    "resultsLimit scope across multiple usernames is unknown",
+    "includeSharesCount output field name is unknown",
+    "Profile records may lack text/audioUrl/videoUrl",
+    "bulk output ordering, mapping, cardinality and partial-failure shape are unverified",
+    "runtime defaults cannot be inferred from prefill values",
+    "the upstream raw fixed-build schema was not locally available for this batch; this file is normalized from the existing audit"
+  ],
+  "syntheticFixturePolicy": "Fixtures under tests/fixtures are invented test data and are not Actor output samples."
+}

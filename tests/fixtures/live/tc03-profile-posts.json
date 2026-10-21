@@ -1,0 +1,11 @@
+{
+  "includeSharesCount": false,
+  "onlyPostsNewerThan": "7 days",
+  "resultsLimit": 10,
+  "skipPinnedPosts": true,
+  "usernames": [
+    "lovepegz",
+    "danmartell",
+    "theownerswitch"
+  ]
+}

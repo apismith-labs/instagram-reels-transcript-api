@@ -1,186 +1,320 @@
+"""Run one independently billed Actor Run for each explicitly supplied CSV row.
+
+This is the CSV Batch mode. It is separate from Native Bulk (one run with ``bulkUrls``).
+Importing this module does not read credentials, load dotenv, create files, or access network.
+"""
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import os
 import sys
-import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict, is_dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping, Sequence
 
-from apify_client import ApifyClient
-from dotenv import load_dotenv
-
+if __package__:
+    from . import client as api_client
+    from .reliable_actor import RunJournal, safe_error, sanitize, validate_build, validate_run_charge_cap
+else:
+    import client as api_client
+    from reliable_actor import RunJournal, safe_error, sanitize, validate_build, validate_run_charge_cap
 
 DEFAULT_ACTOR_ID = "apple_yang/instagram-transcripts-scraper"
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CSV = REPO_ROOT / "sample-data" / "instagram-reel-urls.csv"
-OUTPUT_DIR = REPO_ROOT / "sample-output" / "generated"
-RESULTS_FILE = OUTPUT_DIR / "python-batch-results.jsonl"
-ERRORS_FILE = OUTPUT_DIR / "python-batch-errors.csv"
-MAX_RETRIES = 2
+DEFAULT_CONCURRENCY = 3
 
 
-def load_config() -> None:
-    load_dotenv(REPO_ROOT / ".env")
+class CsvInputError(ValueError):
+    """The CSV cannot safely be submitted as a batch."""
 
 
-def require_env(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        raise SystemExit(f"Error: {name} is required. Set it in .env or your environment.")
-    return value
+class _LockedJournal:
+    """Serialize journal appends made by concurrent row workers."""
+
+    def __init__(self, journal: RunJournal):
+        self._journal = journal
+        self._lock = threading.Lock()
+
+    def append(self, record: dict[str, Any]) -> None:
+        with self._lock:
+            self._journal.append(record)
 
 
-def parse_max_concurrency() -> int:
-    raw_value = os.getenv("MAX_CONCURRENCY", "3")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run one independent Actor Run per Reel URL in a CSV file."
+    )
+    parser.add_argument("csv_file", help="CSV path with a videoUrl column")
+    parser.add_argument(
+        "--concurrency",
+        help=f"maximum simultaneous Runs (default: MAX_CONCURRENCY or {DEFAULT_CONCURRENCY})",
+    )
+    parser.add_argument(
+        "--output",
+        help="JSON result path; relative paths use the current directory; existing files are never overwritten",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate the CSV and print the Run plan without reading credentials or creating Runs",
+    )
+    return parser
+
+
+def parse_concurrency(cli_value: str | None, environment: Mapping[str, str]) -> int:
+    raw_value = cli_value if cli_value is not None else environment.get("MAX_CONCURRENCY", str(DEFAULT_CONCURRENCY))
     try:
         value = int(raw_value)
-    except ValueError as exc:
-        raise SystemExit("Error: MAX_CONCURRENCY must be an integer.") from exc
+    except (TypeError, ValueError):
+        raise CsvInputError("concurrency must be a positive whole number (for example, 3)") from None
     if value < 1:
-        raise SystemExit("Error: MAX_CONCURRENCY must be at least 1.")
+        raise CsvInputError("concurrency must be at least 1")
     return value
 
 
-def read_urls(csv_path: Path) -> list[str]:
-    if not csv_path.exists():
-        raise SystemExit(f"Error: CSV file not found: {csv_path}")
+def read_urls(file: Path) -> list[dict[str, str]]:
+    """Read and validate all non-empty videoUrl records before any Run is submitted."""
+    try:
+        with file.open("r", newline="", encoding="utf-8-sig") as stream:
+            reader = csv.DictReader(stream)
+            if not reader.fieldnames or "videoUrl" not in reader.fieldnames:
+                raise CsvInputError("CSV line 1: missing required videoUrl column in the header")
+            rows: list[dict[str, str]] = []
+            for row in reader:
+                row_number = reader.line_num
+                if None in row:
+                    raise CsvInputError(f"CSV row ending at line {row_number} has more values than its header")
+                value = row.get("videoUrl")
+                if value is None:
+                    raise CsvInputError(f"CSV line {row_number}: missing videoUrl field")
+                if not value.strip():
+                    # Keep the established behavior for blank URL rows: they are not tasks.
+                    continue
+                source_url = value.strip()
+                try:
+                    api_client._validate_url(source_url)
+                except api_client.ConfigurationError as exc:
+                    raise CsvInputError(f"CSV line {row_number}: invalid videoUrl: {exc}") from None
+                rows.append({"inputRow": str(row_number), "sourceUrl": source_url})
+    except UnicodeDecodeError as exc:
+        raise CsvInputError(f"CSV is not valid UTF-8: {exc}") from None
+    except csv.Error as exc:
+        raise CsvInputError(f"Could not parse CSV: {exc}") from None
+    if not rows:
+        raise CsvInputError("CSV contains no non-empty videoUrl rows")
+    return rows
 
-    with csv_path.open(newline="", encoding="utf-8") as file:
-        reader = csv.DictReader(file)
-        if not reader.fieldnames or "videoUrl" not in reader.fieldnames:
-            raise SystemExit("Error: CSV must include a videoUrl column.")
-        return [row["videoUrl"].strip() for row in reader if row.get("videoUrl", "").strip()]
+
+def _reserve_output_path(requested: str | None, output_dir: Path) -> Path:
+    """Create an exclusive placeholder so a result can never truncate an old artifact."""
+    def create_exclusive(target: Path) -> None:
+        file_mode = 0o600 if os.name == "posix" else 0o666
+        descriptor = os.open(str(target), os.O_CREAT | os.O_EXCL | os.O_WRONLY, file_mode)
+        os.close(descriptor)
+
+    if requested:
+        target = Path(requested).expanduser()
+        if not target.is_absolute():
+            target = Path.cwd() / target
+        target = target.resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            create_exclusive(target)
+        except FileExistsError:
+            raise CsvInputError(f"Output file already exists; choose another path: {target}") from None
+        return target
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    base = output_dir / f"python-batch-results-{timestamp}.json"
+    candidate = base
+    suffix = 1
+    while True:
+        try:
+            create_exclusive(candidate)
+            return candidate
+        except FileExistsError:
+            candidate = base.with_name(f"{base.stem}-{suffix}{base.suffix}")
+            suffix += 1
 
 
-def fetch_dataset_items(client: ApifyClient, dataset_id: str) -> list[dict[str, Any]]:
-    return client.dataset(dataset_id).list_items().items
-
-
-def first_value(items: list[dict[str, Any]], key: str) -> Any:
-    for item in items:
-        value = item.get(key)
-        if value:
-            return value
-    return None
-
-
-def call_actor_once(token: str, actor_id: str, video_url: str, sessionid: str) -> list[dict[str, Any]]:
-    client = ApifyClient(token)
-    run = client.actor(actor_id).call(
-        run_input={
-            "videoUrl": video_url,
-            "sessionid": sessionid,
+def _result_row(row: Mapping[str, str], result: Any = None, error: Exception | None = None) -> dict[str, Any]:
+    if error is not None:
+        if isinstance(error, api_client.CreationUnknownError):
+            status = "creation_unknown"
+        elif isinstance(error, (api_client.TranscriptTransportError, api_client.ProtocolError, api_client.ConfigurationError)):
+            status = "transport_error"
+        else:
+            status = "unknown"
+        return {
+            "inputRow": row["inputRow"],
+            "sourceUrl": row["sourceUrl"],
+            "status": status,
+            "runId": getattr(error, "run_id", None),
+            "datasetId": getattr(error, "dataset_id", None),
+            "transcript": None,
+            "segments": [],
+            "segmentsCount": 0,
+            "items": [],
+            "datasetComplete": None,
+            "error": safe_error(error),
         }
-    )
-    dataset_id = run.get("defaultDatasetId") if run else None
-    if not dataset_id:
-        raise RuntimeError("Actor run completed without a defaultDatasetId.")
-    return fetch_dataset_items(client, dataset_id)
 
-
-def build_result(source_url: str, items: list[dict[str, Any]]) -> dict[str, Any]:
-    text = first_value(items, "text")
-    segments = first_value(items, "segments")
-    err_msg = first_value(items, "errMsg")
-    if err_msg:
-        status = "actor_error"
-    elif not items:
-        status = "empty"
-    else:
-        status = "success"
-
+    if is_dataclass(result):
+        result = asdict(result)
+    if not isinstance(result, dict):
+        return {
+            "inputRow": row["inputRow"], "sourceUrl": row["sourceUrl"], "status": "unknown",
+            "runId": None, "datasetId": None, "transcript": None, "segments": [],
+            "segmentsCount": 0, "items": [], "datasetComplete": None,
+            "error": "Transcript client returned an unsupported result shape",
+        }
+    segments = result.get("segments") if isinstance(result.get("segments"), list) else []
+    items = result.get("items") if isinstance(result.get("items"), list) else []
     return {
-        "sourceUrl": source_url,
-        "status": status,
-        "itemCount": len(items),
-        "text": text or "",
-        "segments": segments or [],
-        "errMsg": err_msg or "",
-        "rawItems": items,
+        "inputRow": row["inputRow"],
+        "sourceUrl": row["sourceUrl"],
+        "status": result.get("status", "unknown"),
+        "runId": result.get("run_id", result.get("runId")),
+        "datasetId": result.get("dataset_id", result.get("datasetId")),
+        "transcript": result.get("text", result.get("transcript")),
+        "segments": segments,
+        "segmentsCount": len(segments),
+        "items": items,
+        "datasetComplete": result.get("dataset_complete", result.get("datasetComplete")),
+        "error": result.get("error"),
     }
 
 
-def process_url(token: str, actor_id: str, video_url: str, sessionid: str) -> dict[str, Any]:
-    last_error: Exception | None = None
-    for attempt in range(MAX_RETRIES + 1):
+def _write_result(path: Path, document: dict[str, Any]) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as stream:
+        json.dump(sanitize(document), stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def run_cli(
+    argv: Sequence[str] | None = None,
+    *,
+    environment: Mapping[str, str] | None = None,
+    transcript_runner: Callable[..., Any] | None = None,
+    output_dir: Path | None = None,
+    journal: Any = None,
+    stdout: Any = None,
+    stderr: Any = None,
+) -> int:
+    """CLI orchestration with dependency seams; tests inject a fully offline transcript runner."""
+    out = stdout if stdout is not None else sys.stdout
+    err = stderr if stderr is not None else sys.stderr
+    try:
+        args = build_parser().parse_args(list(argv) if argv is not None else None)
+    except SystemExit as exc:
+        return int(exc.code or 0)
+
+    env = environment if environment is not None else os.environ
+    try:
+        concurrency = parse_concurrency(args.concurrency, env)
+        csv_path = Path(args.csv_file).expanduser()
+        if not csv_path.is_absolute():
+            csv_path = Path.cwd() / csv_path
+        rows = read_urls(csv_path)
+    except (CsvInputError, OSError) as exc:
+        print(f"Error: {exc}", file=err)
+        return 2
+
+    if args.dry_run:
+        print(json.dumps({
+            "mode": "csv_batch_independent_runs",
+            "rows": len(rows),
+            "concurrency": concurrency,
+            "maximumActorRuns": len(rows),
+            "source": str(csv_path.resolve()),
+        }, ensure_ascii=False, sort_keys=True), file=out)
+        return 0
+
+    token = env.get("APIFY_TOKEN")
+    if not isinstance(token, str) or not token.strip():
+        print("Error: APIFY_TOKEN is required in the process environment. No Actor Run was created.", file=err)
+        return 2
+
+    actor_id = env.get("APIFY_ACTOR_ID", DEFAULT_ACTOR_ID)
+    build = env.get("APIFY_BUILD", api_client.APPROVED_BUILD_NUMBER)
+    cap = env.get("APIFY_MAX_TOTAL_CHARGE_USD")
+    require_cap = env.get("APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD") == "1"
+    try:
+        if not isinstance(actor_id, str) or not actor_id.strip() or actor_id.strip().startswith("/"):
+            raise CsvInputError("APIFY_ACTOR_ID must be a non-empty Actor ID or owner/name")
+        validate_build(build, required=True)
+        validate_run_charge_cap(cap, required=require_cap)
+        selected_output_dir = Path(output_dir) if output_dir is not None else csv_path.parent
+        output_path = _reserve_output_path(args.output, Path(selected_output_dir))
+    except (ValueError, OSError) as exc:
+        print(f"Error: {exc}", file=err)
+        return 2
+
+    active_journal = journal if journal is not None else _LockedJournal(RunJournal(output_path.parent / "python-run-journal.jsonl"))
+    runner = transcript_runner if transcript_runner is not None else api_client.get_transcript
+    results: list[dict[str, Any] | None] = [None] * len(rows)
+
+    def submit(index: int, row: dict[str, str]) -> dict[str, Any]:
         try:
-            items = call_actor_once(token, actor_id, video_url, sessionid)
-            return build_result(video_url, items)
-        except Exception as exc:
-            last_error = exc
-            if attempt < MAX_RETRIES:
-                time.sleep(2**attempt)
-
-    raise RuntimeError(str(last_error) if last_error else "Unknown error")
-
-
-def write_results(results: list[dict[str, Any]], errors: list[dict[str, str]]) -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    with RESULTS_FILE.open("w", encoding="utf-8") as file:
-        for result in results:
-            file.write(json.dumps(result, ensure_ascii=False) + "\n")
-
-    with ERRORS_FILE.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=["sourceUrl", "error"])
-        writer.writeheader()
-        writer.writerows(errors)
-
-
-def main() -> None:
-    load_config()
-
-    token = require_env("APIFY_TOKEN")
-    actor_id = os.getenv("APIFY_ACTOR_ID", DEFAULT_ACTOR_ID)
-    sessionid = os.getenv("INSTAGRAM_SESSIONID", "")
-    csv_path = Path(sys.argv[1]).expanduser().resolve() if len(sys.argv) > 1 else DEFAULT_CSV
-    max_concurrency = parse_max_concurrency()
-    urls = read_urls(csv_path)
-
-    if not urls:
-        raise SystemExit("Error: CSV does not contain any videoUrl values.")
-
-    print(f"Actor ID: {actor_id}")
-    print(f"Total URLs: {len(urls)}")
-    print(f"Max concurrency: {max_concurrency}")
-    print("Higher concurrency may increase Apify usage cost and rate-limit risk.")
-
-    results: list[dict[str, Any]] = []
-    errors: list[dict[str, str]] = []
-    processed = 0
-    success = 0
-    failed = 0
-
-    with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
-        future_to_url = {
-            executor.submit(process_url, token, actor_id, video_url, sessionid): video_url
-            for video_url in urls
-        }
-
-        for future in as_completed(future_to_url):
-            source_url = future_to_url[future]
-            processed += 1
-            try:
-                result = future.result()
-                results.append(result)
-                success += 1
-            except Exception as exc:
-                errors.append({"sourceUrl": source_url, "error": str(exc)})
-                failed += 1
-
-            print(
-                f"Progress: total={len(urls)} processed={processed} "
-                f"success={success} failed={failed}"
+            result = runner(
+                row["sourceUrl"], token=token, actor_id=actor_id, build=build,
+                max_total_charge_usd=cap, require_charge_cap=require_cap,
+                journal=active_journal,
             )
+            return _result_row(row, result=result)
+        except Exception as exc:  # Keep independent row outcomes even when one call fails.
+            return _result_row(row, error=exc)
 
-    write_results(results, errors)
+    print(
+        f"Submitting {len(rows)} independent Actor Run(s) (maximum {len(rows)} total), concurrency={concurrency}.",
+        file=out,
+    )
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        futures = {pool.submit(submit, index, row): index for index, row in enumerate(rows)}
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                results[index] = future.result()
+            except Exception as exc:  # Defensive: each worker normally converts its own failures.
+                results[index] = _result_row(rows[index], error=exc)
 
-    print(f"Results path: {RESULTS_FILE}")
-    print(f"Errors path: {ERRORS_FILE}")
+    complete_rows = [row for row in results if row is not None]
+    counts: dict[str, int] = {}
+    for row in complete_rows:
+        status = row["status"]
+        counts[status] = counts.get(status, 0) + 1
+    document = {
+        "schemaVersion": 1,
+        "mode": "csv_batch_independent_runs",
+        "recordedAt": datetime.now(timezone.utc).isoformat(),
+        "status": "success" if len(complete_rows) == len(rows) and all(row["status"] == "success" for row in complete_rows) else "partial_failure",
+        "processed": len(complete_rows),
+        "requested": len(rows),
+        "concurrency": concurrency,
+        "counts": counts,
+        "rows": complete_rows,
+    }
+    try:
+        _write_result(output_path, document)
+    except OSError as exc:
+        print(f"Error: results could not be written to {output_path}: {exc}", file=err)
+        print("Run IDs remain in the append-only journal when journal writes succeeded.", file=err)
+        return 2
+
+    print(json.dumps({"status": document["status"], "processed": len(complete_rows), "counts": counts, "output": str(output_path)}, ensure_ascii=False, sort_keys=True), file=out)
+    return 0 if document["status"] == "success" else 1
+
+
+def main() -> int:
+    return run_cli()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -1,0 +1,1 @@
+{"_fixture":"SYNTHETIC - invented test data; not Actor output","mode":"profile_posts","input":{"usernames":["synthetic_creator"]},"items":[{"url":"https://www.instagram.com/reel/synthetic-profile-video/","ownerUsername":"synthetic_creator","type":"video","videoUrl":"https://cdn.example.invalid/synthetic.mp4","videoDuration":8.5,"timestamp":"synthetic timestamp value"}]}

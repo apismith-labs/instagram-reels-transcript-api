@@ -2,101 +2,175 @@
 
 ## What this guide covers
 
-This guide shows how to connect a ChatGPT developer workflow to Apify MCP and
-use the Actor `apple_yang/instagram-transcripts-scraper`.
+This guide wires ChatGPT to the Apify MCP server so it can run the Actor
+`apple_yang/instagram-transcripts-scraper` and read the transcript out of the resulting dataset.
 
-This repository does not provide a Custom GPT Action, custom MCP server, hosted backend proxy, or OpenAPI proxy yet.
+This repository does not provide a Custom GPT Action, OpenAPI proxy, hosted backend, or custom
+MCP server.
 
 Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
+**Verification status.** The setup below follows the official Apify ChatGPT integration page
+(<https://docs.apify.com/integrations/chatgpt>) and the Apify MCP server documentation
+(<https://docs.apify.com/mcp>), checked 2026-10-21. **No ChatGPT connection to this Actor was
+made while writing this.** ChatGPT's connector UI, plan gating, and rollout differ between
+accounts, so treat the menu names as "look for something like this", not as a fixed script.
+
 ## Prerequisites
 
-- ChatGPT account with Developer Mode or custom connector access
-- Apify account
-- Apify Actor: `apple_yang/instagram-transcripts-scraper`
-- Public Instagram Reel URL
+- An OpenAI account with ChatGPT access
+- **Developer mode enabled** in ChatGPT — custom connectors are not exposed without it
+- An Apify account, authorised through OAuth during connector creation
+- A public Instagram Reel/video/post URL
+- The Actor ID: `apple_yang/instagram-transcripts-scraper`
 
-## Create the Apify MCP connector in ChatGPT
+## What ChatGPT can and cannot be assumed to have
 
-1. Enable Developer Mode if needed.
-2. Go to Settings > Apps & Connectors > Create.
-3. Name: `Apify Instagram Transcript MCP`
-4. Description: `Run the Instagram Reels transcript Actor through Apify MCP.`
-5. MCP Server URL:
-   - General Apify MCP: `https://mcp.apify.com`
-   - Actor-focused version: `https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper`
-6. Authentication: OAuth where available.
-7. Authorize Apify in the browser.
+Not every ChatGPT user sees the same feature set. Custom connectors depend on developer mode,
+your plan, and a staged rollout. If the menu described below is absent, that is a product
+availability issue — not something this Actor or this repository can fix. In that case use the
+API examples ([Python](../examples/python/README.md), [Node.js](../examples/nodejs/README.md),
+[cURL](../examples/curl/README.md)) or the MCP setup in
+[use-with-apify-mcp.md](use-with-apify-mcp.md).
 
-Some ChatGPT connector settings may vary.
+ChatGPT's remote connector authenticates with **OAuth only**; there is no "paste a Bearer token"
+field in the connector dialog. Do not try to smuggle a token into the URL — see
+[Credentials](#credentials).
 
-If the connector cannot be edited after creation, create a new connector with
-the desired tools URL.
+## Create the connector
+
+1. Enable developer mode in ChatGPT. When it is active, the message input is visually marked.
+2. Open **Settings → Apps & Connectors → Create**. If there is no **Create** option, developer
+   mode is off or the feature is unavailable for your account; reload and re-check.
+3. Fill in:
+   - **Name** — for example `Apify Instagram Transcript MCP`
+   - **Description** — for example `Run the Instagram Reels transcript Actor through Apify MCP`
+   - **MCP Server URL** — `https://mcp.apify.com` for the default tool set, or the
+     Actor-scoped URL below
+   - **Authentication** — OAuth
+4. Select **Create**. ChatGPT redirects to Apify; sign in and approve access.
+5. You should return to a success message listing the tools the server exposes.
+
+Actor-scoped URL:
+
+```text
+https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper
+```
+
+**ChatGPT cannot edit the tool list of an existing connector.** To change which tools or Actors
+are loaded, create a new connector with the URL you want. This is also why the Actor-scoped URL
+is worth getting right the first time.
+
+One side effect worth knowing: OpenAI may show a safety warning when the connector includes
+social-media scraping tools, because those tools can fetch data about people. That warning comes
+from OpenAI, not from this Actor, and it does not indicate the setup is wrong.
 
 ## Use it in a chat
 
-Start a new chat, add or select the Apify connector, then ask ChatGPT to run or locate the Actor.
+1. Open a new chat.
+2. Use the **+** button near the composer, then **More**, and pick your Apify connector. The
+   connector is per-conversation; enabling it in settings is not enough.
+3. Grant tool permissions when prompted — ChatGPT asks the first time each tool is used.
+4. Ask for the run, in plain language, with the URL included.
 
 ```text
-Use the Apify MCP connector to run the Actor
-apple_yang/instagram-transcripts-scraper with this public Instagram Reel URL:
-
+Use the Apify Instagram Transcript MCP connector to run
+apple_yang/instagram-transcripts-scraper with this public Reel URL:
 https://www.instagram.com/reel/your_reel_id/
 
-Use this input:
-{
-  "videoUrl": "https://www.instagram.com/reel/your_reel_id/",
-  "sessionid": ""
-}
+Send it as videoUrl. Keep the Run ID and Dataset ID.
 
-Then return:
-- transcript text
-- segment count
-- creator username
-- title/caption if available
-- errMsg if present
-- a summary with hook, key points, and CTA
+When the Run finishes, read the dataset items — not just the preview — and then report:
+- errMsg, quoted verbatim, if any item has one
+- the transcript text
+- how many segments it has
+- the creator username
+- a short summary: hook, key points, CTA
+
+If the dataset looks cut off, page through it with offset. Do not start a second Run to
+retrieve the rest.
 ```
 
-## If ChatGPT cannot find the Actor
+## How ChatGPT should get the data
 
-Ask ChatGPT to:
+The tool names it needs, in order, are:
 
-- Search Apify Actors for `instagram transcripts scraper`
-- Fetch Actor details for `apple_yang/instagram-transcripts-scraper`
-- Add or call that Actor
-- Retrieve full output if needed
+| Step | Tool | What it returns |
+| --- | --- | --- |
+| Find the Actor if it is not already loaded | `search-actors` | Actor search results |
+| Read the input schema | `fetch-actor-details` | Input/output schema, README, pricing |
+| Start the Run | `call-actor` | Run status and storage IDs — **not** the transcript |
+| Check the Run | `get-actor-run` | Status, timings, outcome |
+| Read the transcript | `get-dataset-items` | The items, pageable with `limit`/`offset` |
 
-Troubleshooting prompt:
+If ChatGPT proposes `add-actor` or `get-actor-output`, it is recalling an older version of the
+server. Neither exists in the current tool list. Ask it to list its tools and then use
+`get-dataset-items` with the Dataset ID.
+
+Set run limits in `callOptions` (`maxItems`, `maxTotalChargeUsd`, `timeout`), not in the Actor
+input — see [Cost](#cost).
+
+## If ChatGPT cannot find or call the Actor
 
 ```text
-Search Apify Actors for "instagram transcripts scraper".
+Search Apify Store for "instagram transcripts scraper".
 
-If you find apple_yang/instagram-transcripts-scraper, fetch its Actor details,
-inspect the input schema, then call it with this input:
-{
-  "videoUrl": "https://www.instagram.com/reel/your_reel_id/",
-  "sessionid": ""
-}
-If the output preview is incomplete, retrieve the full Actor output.
+Then fetch the Actor details for apple_yang/instagram-transcripts-scraper and show me its
+input schema. Do not run it yet.
+
+If you cannot load it through the connector, tell me which tools you actually have available
+instead of guessing a tool name.
 ```
+
+Common causes: the connector was created with a URL that does not include the Actor; the
+connector is enabled in settings but not attached to this conversation; tool permissions are
+blocked; OAuth authorisation never completed.
+
+## Cost
+
+- Each Actor Run is billable Apify usage, and the Actor has multiple billing events.
+- An incomplete-looking answer is not a reason to re-run. Ask for `get-dataset-items` with a
+  higher `limit` or a later `offset`.
+- Request `maxTotalChargeUsd` / `maxItems` in `callOptions` where supported, but do not treat them
+  as a verified hard billing ceiling for this Actor; confirm live tool schema and account controls.
+
+Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
+
+## Credentials
+
+- Use OAuth. It is the only method the ChatGPT connector dialog offers, and it keeps tokens out
+  of configuration entirely.
+- Do not paste an Apify token into the chat, even "just to test". Chat content persists and may
+  be reviewed, logged, or surfaced in shared links.
+- Do not put a token in the MCP server URL as a query parameter — it ends up in URLs, logs, and
+  screenshots.
+- Revoke the connection from Apify Console → Settings → Integrations when you are done.
 
 ## Limitations
 
-- This repo does not provide a Custom GPT Action or backend proxy yet.
-- ChatGPT UI may change.
-- Actor runs may take time.
-- Some outputs may require `get-actor-output` if preview is truncated.
+- MCP support in ChatGPT is officially described as beta; tool selection can be slow and
+  occasionally wrong.
+- Connectors cannot be edited after creation; expect to recreate them.
+- Long Runs can exceed the time a single tool call waits for. `call-actor` waits at most 45
+  seconds with a default of 30 — a long transcript job will return before it finishes, and the
+  Run ID is what you follow up with.
+- Whether the agent reads the entire dataset or just the preview is a client behaviour you cannot
+  fully control. Always ask for item counts when completeness matters.
+- Profile mode (`usernames`) returns metadata only. If the answer contains a "transcript" after a
+  Profile run, it is invented.
 
-## Security notes
+## Still unverified
 
-- Do not paste Apify API tokens directly into normal chat messages.
-- Use secure MCP app configuration.
-- Keep tokens out of committed files and screenshots.
-- Use OAuth where available.
+- The exact ChatGPT UI path and feature availability for your account and region.
+- Whether ChatGPT surfaces pagination controls for `get-dataset-items`, or silently truncates.
+- Which tools the connector actually loads with the Actor-scoped URL in current builds.
 
 ## Related docs
 
 - [Use Instagram Reels Transcript API with Apify MCP](use-with-apify-mcp.md)
+- [Use with Claude](use-with-claude-mcp.md)
+- [Use with Gemini CLI](use-with-gemini-cli-mcp.md)
+- [Use with Cursor and VS Code](use-with-cursor-vscode-mcp.md)
 - [Prompt recipes for Reels analysis](prompt-recipes-for-reels-analysis.md)
 - [AI agent use cases](ai-agent-use-cases.md)
+- Official: [Apify ChatGPT integration](https://docs.apify.com/integrations/chatgpt)

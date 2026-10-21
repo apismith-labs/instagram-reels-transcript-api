@@ -134,14 +134,19 @@ The Actor exposes three input modes. Choose exactly one per Run; do not mix them
 | Mode | Entry field | What it produces | Implemented examples |
 | --- | --- | --- | --- |
 | Single transcript | `videoUrl` | Transcript result for one public video/post URL | Python, Node.js, cURL, Java, Go, Rust |
-| Native bulk transcript | `bulkUrls` | One Run for several URLs; item cardinality, order, and partial failures remain unverified | Python, Node.js |
-| Profile posts | `usernames` | Post metadata for one or more accounts; it does not produce transcripts | Python |
+| Native bulk transcript | `bulkUrls` | One Build `0.0.50` live acceptance passed for the three TC02 URLs; arbitrary cardinality and mixed failures remain unverified | Python, Node.js |
+| Profile posts | `usernames` | One Build `0.0.50` live acceptance retrieved one post for one account; multi-account behavior remains unverified | Python |
 | CSV Batch | CSV `videoUrl` column | One independent Run per non-empty row, with bounded client concurrency | Python, Node.js, Java, Go, Rust |
 
-The repository's Python/Node.js Single URL runners have one recorded real acceptance each on Build
-`0.0.50`, limited to the TC01 URL subset. Python Native Bulk, Profile, and CSV Batch have only
-offline Mock validation; Node.js Native Bulk and CSV Batch have not had live validation recorded.
-These narrow single-URL results do not establish live compatibility for other modes or Builds.
+The Python/Node.js Single URL runners each have one recorded real acceptance on Build `0.0.50`,
+limited to the TC01 URL subset. Python Native Bulk passed one real Run on Build `0.0.50` for the
+three fixed TC02 URLs; this does not validate arbitrary batch sizes, general pagination, or mixed
+success/failure results. Python Profile passed one real Run on Build `0.0.50` for `lovepegz` with
+`resultsLimit=1`, returning one post metadata item; the full TC03 input, multi-account attribution,
+date filtering, and pinned-post behavior remain unverified. Node.js Native Bulk also has a recorded
+successful live Run. Python CSV Batch remains offline-only: `--dry-run` is validated, but real
+per-row CSV Runs have not been tested. Node.js CSV Batch has no live validation recorded. These
+narrow results do not establish compatibility for other inputs or Builds.
 
 Important boundaries:
 

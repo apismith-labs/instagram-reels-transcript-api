@@ -181,6 +181,13 @@ not general pagination. Dataset cardinality for Native Bulk and the precise Bulk
 count or client timeout is not a total spend limit. Use an approved per-Run charge cap where
 required.
 
+One real Python Native Bulk acceptance on Build `0.0.50` passed for the three fixed TC02 URLs;
+this does not validate arbitrary batch sizes or mixed success/failure results. `dataset_complete=True`
+(serialized as `datasetComplete=true` in relevant records) means only that this single-page
+Dataset read did not reach its configured item limit. It does not prove that every input produced
+a result or that pagination was performed; use `all_success` together with each input's status to
+judge Native Bulk coverage.
+
 For copy-based integration, copy `client.py` and `reliable_actor.py` into the same application
 directory and import `from client import get_transcripts`; the pair uses the standard library and
 does not depend on the current working directory. Pass `token=` explicitly or set `APIFY_TOKEN`.
@@ -257,7 +264,10 @@ The meaning of `resultsLimit` across multiple accounts remains **unknown**; sett
 a promise of a per-account or overall cap. The Profile API reads one Dataset page (default 100)
 and reports `dataset_complete=False`/`unknown` if that page is full. Profile is separate from
 Transcript mode: use a separate approved `videoUrl` or `bulkUrls` call if a post needs a
-transcript. No real Profile Actor Run has been performed by this integration task.
+transcript. One real Profile acceptance on Build `0.0.50` used the single account `lovepegz` with
+`resultsLimit=1` and returned one post metadata item. This does not validate the full TC03 Fixture,
+multi-account attribution, date filtering, or pinned-post behavior. Profile returns post metadata,
+not transcripts.
 
 ## Configure `.env`
 
@@ -377,6 +387,10 @@ code `2`. Each call is bounded by a 15-minute overall deadline.
 The CSV Batch entry requires an explicit file path. Every non-empty `videoUrl` data row is one
 independent Actor Run. This differs from Native Bulk, where multiple URLs are sent together in one
 `bulkUrls` input and create one Run total.
+
+Python CSV Batch has offline validation only. Its `--dry-run` path does not create Runs, but real
+per-row Actor Run behavior has not been live-tested; do not infer CSV Batch live acceptance from
+Single URL, Native Bulk, or Profile results.
 
 Minimal CSV:
 

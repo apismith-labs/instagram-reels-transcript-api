@@ -3,26 +3,46 @@
 ## What this guide covers
 
 This guide shows how to expose the Apify Actor
-`apple_yang/instagram-transcripts-scraper` to MCP-compatible clients through
-Apify MCP.
+`apple_yang/instagram-transcripts-scraper` to MCP-compatible clients through the Apify MCP
+server, call it from an AI client, retrieve the transcript data, and judge whether the result is
+actually complete.
 
-Use this when you want an AI client or agent to call the Actor, pass an
-Instagram Reel URL, retrieve transcript JSON, and then summarize, classify,
-translate, or repurpose the transcript.
+Use it when you want an agent to fetch a transcript and then summarize, classify, translate, or
+repurpose it — with a clear line between "the agent says it worked" and "the data is really
+there".
 
 Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
+## Verification status
+
+| Part | How it was checked |
+| --- | --- |
+| Tool names, connection methods, query parameters, run limits | Read from the official Apify MCP documentation (<https://docs.apify.com/mcp>) and the per-client Apify integration pages on 2026-10-21 |
+| Actor input/output semantics | Pinned build `0.0.50` contract, same basis as [input-output-fields.md](input-output-fields.md) — schema-level, not observed |
+| Actually calling this Actor over MCP from any client | **Not performed.** This repository has no MCP client, no token, and no end-to-end MCP run has been verified |
+
+Everything below is therefore documentation-level guidance. Tool availability, tool naming, and
+client UI all depend on the client version, the server configuration, and your account — so treat
+tool names as "what to look for", not as strings to hardcode.
+
 ## Prerequisites
 
-- Apify account
-- Apify API token or OAuth connection
-- MCP-compatible client
-- Public Instagram Reel or video URL
+- An Apify account
+- An MCP-compatible client
+- Either OAuth (recommended) or an Apify API token, depending on the connection method
+- A public Instagram Reel/video/post URL
 - Actor ID: `apple_yang/instagram-transcripts-scraper`
 
-## Recommended setup: Hosted Apify MCP with OAuth
+Read-only discovery tools (`search-actors`, `fetch-actor-details`, `search-apify-docs`,
+`fetch-apify-docs`) work without a token. **Running Actors and reading datasets always require
+authentication.**
 
-Use the hosted Apify MCP server when your client supports remote MCP server URLs:
+## Connect to Apify MCP
+
+Two transports are officially supported: the hosted Streamable HTTP server at
+`https://mcp.apify.com`, or a local stdio server run with `npx`.
+
+### Hosted server with OAuth (recommended)
 
 ```json
 {
@@ -34,47 +54,12 @@ Use the hosted Apify MCP server when your client supports remote MCP server URLs
 }
 ```
 
-This uses OAuth where the client supports it.
+The first connection opens a browser so you can sign in to Apify and approve access. No token is
+written into the config file. If your client uses a visual connector dialog instead of a JSON
+file, paste `https://mcp.apify.com` as the remote server URL and let it detect OAuth — see the
+per-client guides linked at the bottom.
 
-The user signs in to Apify in the browser, which avoids pasting API tokens into
-config files.
-
-## Alternative setup: Hosted Apify MCP with Bearer token
-
-Use this only in secure local or server-side configuration:
-
-```json
-{
-  "mcpServers": {
-    "apify": {
-      "url": "https://mcp.apify.com",
-      "headers": {
-        "Authorization": "Bearer YOUR_APIFY_TOKEN"
-      }
-    }
-  }
-}
-```
-
-Never commit this config if it contains a real token.
-
-## Limit tools to this Actor
-
-Apify MCP can load specific tools and Actors with the `tools` query parameter.
-
-Actor-focused OAuth configuration:
-
-```json
-{
-  "mcpServers": {
-    "apify-instagram-transcript": {
-      "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper"
-    }
-  }
-}
-```
-
-Actor-focused Bearer token configuration:
+### Hosted server with a Bearer token
 
 ```json
 {
@@ -89,18 +74,11 @@ Actor-focused Bearer token configuration:
 }
 ```
 
-If a client does not expose the Actor directly as a named tool, use the generic
-Apify MCP tools such as:
+Use this only for local or server-side configuration, and never commit a file containing a real
+token. Prefer an environment-variable reference where your client supports interpolation rather
+than a literal value.
 
-- `search-actors`
-- `fetch-actor-details`
-- `add-actor`
-- `call-actor`
-- `get-actor-output`
-
-## Local stdio setup
-
-Use local stdio if your client does not support remote MCP server URLs:
+### Local stdio server
 
 ```json
 {
@@ -116,180 +94,287 @@ Use local stdio if your client does not support remote MCP server URLs:
 }
 ```
 
-This requires Node.js 18 or newer. Keep `APIFY_TOKEN` out of committed files.
+Requires Node.js 18 or newer. Use stdio only when the client cannot reach a remote MCP server.
+Note that the hosted server supports output-schema inference for Actor results while the local
+stdio server does not, so the hosted path gives the agent better type information.
 
-## How to call this Actor through MCP
+There is also an Apify CLI shortcut that writes the client config for you:
 
-There are two common flows.
+```bash
+apify mcp install cursor
+```
 
-### Flow A: Direct Actor tool
+and a visual configurator at <https://mcp.apify.com/> that generates the URL and config for the
+tools you pick.
 
-If the Actor is loaded as a specific tool, ask the AI client to call
-`apple_yang/instagram-transcripts-scraper` directly with the Actor input JSON.
+### Narrow the tool list
 
-### Flow B: Generic Apify tools
+The `tools` query parameter controls what the server loads:
 
-If the Actor does not appear as a direct tool:
+```text
+https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper
+https://mcp.apify.com?tools=actors,docs,apple_yang/instagram-transcripts-scraper
+```
 
-1. Use `search-actors` with query `instagram transcripts scraper`.
-2. Use `fetch-actor-details` for `apple_yang/instagram-transcripts-scraper`.
-3. Use `call-actor` with the Actor ID and run input.
-4. Use `get-actor-output` if the output preview is incomplete.
+- The default set includes the `actors` and `docs` tool categories plus a couple of web tools.
+- Naming an Actor in `tools=` loads that Actor as its own tool.
+- Actor-level tool names replace the `/` in the Actor ID; the official docs show
+  `apify--rag-web-browser` for `apify/rag-web-browser`. Confirm the exact string in your client's
+  tool list instead of assuming `apple_yang--instagram-transcripts-scraper` will be spelled that
+  way in your build.
+- Whenever `call-actor` or an Actor-specific tool is loaded, the server **also** exposes
+  `get-actor-run`, `get-dataset-items`, `get-key-value-store-record`, and `abort-actor-run`, even
+  if you did not select them.
 
-Actor input:
+## Which tool does what
+
+This is the part most older MCP guides get wrong. The current tool set separates *running* an
+Actor from *reading* its results.
+
+| What you want | Tool | Notes |
+| --- | --- | --- |
+| Find the Actor | `search-actors` | Works without authentication |
+| Read the input schema, output schema, README, pricing | `fetch-actor-details` | This is how the agent learns which fields to send |
+| Start a Run | `call-actor` | Waits up to `waitSecs` (0–45, default 30). Returns **run status and storage IDs, not the results** |
+| Get the Run ID | the `call-actor` response | The run object carries its own ID; keep it |
+| Check Run status | `get-actor-run`, or `get-actor-run-list` | The list variant is filterable by status, which is how you find a Run whose ID you lost |
+| Inspect logs | `get-actor-run-log` | Useful when a Run ends `FAILED` with no useful Dataset |
+| Read results | `get-dataset-items` | Takes the `datasetId` from the Run; supports `limit`, `offset`, and field filtering |
+| Dataset metadata / inferred schema | `get-dataset`, `get-dataset-schema` | Schema is inferred from the items, so it only helps after data exists |
+| Stop a Run | `abort-actor-run` | Available whenever `call-actor` is loaded |
+
+Two names you may see in blog posts, older docs, or an older model's memory are **not** in the
+current tool list:
+
+- `add-actor` — no longer needed; naming an Actor in `tools=` or using `call-actor` covers it.
+- `get-actor-output` — replaced by `get-dataset-items` with a `datasetId`.
+
+Do not let an agent substitute a tool name it "remembers". If a name is missing, ask it to list
+the tools it can actually see, then re-map the step to `fetch-actor-details` → `call-actor` →
+`get-actor-run` → `get-dataset-items`.
+
+### Run limits belong in `callOptions`
+
+`call-actor` accepts run limits in `callOptions` — `memory`, `timeout`, `maxItems`,
+`maxTotalChargeUsd` — **not** inside the Actor input JSON. These are tool-call options, not a
+verified billing ceiling for this Actor. Use a charge value only after the project owner sets the
+test budget and the live tool schema confirms the option:
 
 ```json
 {
-  "videoUrl": "https://www.instagram.com/reel/your_reel_id/",
-  "sessionid": ""
+  "actorId": "apple_yang/instagram-transcripts-scraper",
+  "input": {
+    "videoUrl": "https://www.instagram.com/reel/your_reel_id/"
+  },
+  "callOptions": {
+    "maxItems": 1,
+    "timeout": 300
+  }
 }
 ```
 
-- `videoUrl` is required.
-- `sessionid` is optional.
-- Use only public or authorized content.
+The exact request shape depends on the client's tool-call schema; check what your client shows
+before relying on these key names. The presence of these options does not prove an enforced
+billing ceiling for this Actor; confirm support in the live tool schema and account controls.
 
-## Example MCP prompt
+## Getting complete results
 
-```text
-Use Apify MCP to run the Actor apple_yang/instagram-transcripts-scraper.
+`call-actor` returns identifiers, not data. A transcript is only in hand once dataset items have
+been read.
 
-Input:
+1. Call the Actor and keep the returned **Run ID** and **Dataset ID**.
+2. Poll `get-actor-run` until the status is terminal.
+3. Read `get-dataset-items` with that `datasetId`.
+4. If the response was capped by `limit`, page with `offset` until you have everything, or until
+   the returned count is smaller than the requested limit.
+5. Only then claim the result is complete.
+
+Rules that prevent the expensive mistakes:
+
+- **A Dataset preview is not the full output.** Chat clients often truncate tool output for
+  display; that is a UI limit, not proof that the Dataset is short.
+- **An empty first read is not proof of failure.** Dataset visibility right after `SUCCEEDED` has
+  not been verified for this Actor; re-read before concluding `empty`.
+- **Never create a second Run because the result looked incomplete.** Re-read the same
+  `datasetId`, ask for a specific `offset`, or fetch the dataset through the API. A new Run is new
+  billable work and may not even be the same data.
+- There is no automatic paging loop in these instructions — paging is something your client has
+  to actually perform.
+
+## Actor input: three modes
+
+The Actor has three entry points. Send one per Run.
+
+| Mode | Entry field | Produces | Example in this repository |
+| --- | --- | --- | --- |
+| Single transcript | `videoUrl` | A transcript for one public video/post URL | Yes — cURL, Python, Node.js, Java, Go, Rust |
+| Native bulk transcript | `bulkUrls` | Transcripts for several URLs inside one Run | **No** — V2.1 `B01`, not developed |
+| Profile posts | `usernames` | Post metadata for public accounts | **No** — V2.1 `P01`, not developed |
+
+Boundaries that matter when prompting an agent:
+
+- **Profile mode does not generate transcripts.** It returns post metadata (captions, media URLs,
+  engagement fields). A transcript needs a second, separate Run with `videoUrl` or `bulkUrls`.
+  An agent that answers "here is the transcript" from `usernames` output is fabricating.
+- `videoUrl` is required **only in single mode**. It is not a global required field.
+- The pinned schema declares `required: []` and contains no `oneOf`/`anyOf`, so nothing
+  server-side enforces "one mode only". Keeping the modes separate is your responsibility — no
+  example in this repository implements the selection.
+- `sessionid` appears in the Actor README but is absent from the pinned machine schema. Its
+  runtime effect is unknown; leave it out unless you have a specific reason, and never put a real
+  value in a chat message or a committed file.
+- The `videoUrl` in the **output** is a media/CDN link, not the page URL. Feeding it back as
+  input is not a valid re-run.
+
+Single-mode input:
+
+```json
 {
-  "videoUrl": "https://www.instagram.com/reel/your_reel_id/",
-  "sessionid": ""
+  "videoUrl": "https://www.instagram.com/reel/your_reel_id/"
 }
-
-After the Actor finishes, retrieve the full output if needed and summarize:
-1. Main topic
-2. Hook
-3. Key points
-4. CTA
-5. Product mentions
-6. Reusable content ideas
 ```
 
-```text
-Find the Apify Actor apple_yang/instagram-transcripts-scraper.
+## Example prompts
 
-Inspect its input schema, run it with this public Instagram Reel URL, and return:
-- transcript text
-- segment count
-- creator username
-- any errMsg
+These are **agent instructions**, not logs of successful runs. No MCP connection to this Actor
+was made while writing them, and an agent may pick different tools or need a second prompt.
+
+Single video:
+
+```text
+Use Apify MCP to run the Actor apple_yang/instagram-transcripts-scraper with this public
+Instagram Reel URL:
+https://www.instagram.com/reel/your_reel_id/
+
+Send it as the videoUrl input. Keep the Run ID and Dataset ID you get back.
+When the Run finishes, read the dataset items and report:
+- whether any item has a non-empty errMsg (if so, quote it and stop)
+- the transcript text
+- the number of segments
+- the creator username
+If the dataset looks truncated, page through it with offset instead of starting another Run.
+```
+
+Several URLs in one Run (native bulk — no example code in this repository yet):
+
+```text
+Use Apify MCP with the Actor apple_yang/instagram-transcripts-scraper, bulkUrls mode.
+Submit these URLs in one Run:
+- https://www.instagram.com/reel/example_one/
+- https://www.instagram.com/reel/example_two/
+
+Use `maxItems` as a result-count limit. Only provide `maxTotalChargeUsd` if a project owner has
+approved a numeric budget and the live tool schema exposes the option; do not treat it as a
+verified hard billing ceiling.
+After it finishes, read every dataset item and tell me explicitly which submitted URL each
+transcript belongs to. If the mapping is unclear, say so — do not guess.
+```
+
+Profile posts (metadata only):
+
+```text
+Use Apify MCP to run apple_yang/instagram-transcripts-scraper in usernames mode for
+example_account, with resultsLimit set explicitly.
+
+Report only post metadata: caption, post type, media URL, engagement counts, timestamp.
+Do not describe any of it as a transcript — this mode does not transcribe.
+Then tell me which of those post URLs I would need to submit separately as videoUrl to get
+transcripts, and that doing so is a separate billable Run.
 ```
 
 ## Output fields to expect
 
-- `text`
-- `segments`
-- `title`
-- `userName`
-- `likeCount`
-- `commentCount`
-- `videoUrl`
-- `audioUrl`
-- `errMsg`
-- `url`
+Transcript modes: `text`, `segments`, `title`, `userName`, `likeCount`, `commentCount`,
+`videoUrl`, `audioUrl`, `errMsg`, `url`. Profile mode: `caption`, `ownerUsername`, `type`,
+`commentsCount`, `videoPlayCount`, `videoDuration`, `hashtags`, `mentions`.
+
+`errMsg` is the business verdict. A tool call that returned successfully, a Run that ended
+`SUCCEEDED`, and an item with a populated `errMsg` can all be true at once — the item still
+failed. Field-by-field caveats (units, absent fields, key names that must not be guessed) are in
+[input-output-fields.md](input-output-fields.md).
+
+## Cost
+
+- Every Actor Run consumes Apify usage; the Actor has more than one billing event, so the unit
+  price on the Store page is not the total price of one video.
+- An agent retrying "because the output looked empty" can add another billable Run. Re-read the
+  existing dataset instead of re-running. `maxItems` and `maxTotalChargeUsd` may be requested in
+  `callOptions`, but their enforcement for this Actor has not been verified.
+- Bulk and Profile inputs may lead to different or greater usage depending on item counts and
+  Actor billing events; comparative cost has not been verified.
+- Whether failed or timed-out Runs are billed has not been verified — do not assume a failure is
+  free.
+
+Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
+
+## Credentials
+
+- Use OAuth where the client supports it; it keeps the token out of config files entirely.
+- Do not paste an API token into a normal chat prompt. A token in a prompt becomes part of the
+  conversation history, may be logged, and may be echoed back.
+- Do not commit MCP config files that contain tokens; prefer environment-variable interpolation.
+- A client that asks you to paste a token because "it cannot connect otherwise" is a version or
+  configuration problem, not a reason to hand over a credential.
+- Revoke access from Apify Console → Settings → Integrations if a connection is no longer needed.
 
 ## Troubleshooting
 
-### Actor tool does not appear
+### The Actor tool does not appear
 
-Likely causes:
+- Check that the server URL includes the Actor, for example
+  `https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper`.
+- Some clients only expose the generic `actors` tools; then use `search-actors` →
+  `fetch-actor-details` → `call-actor`.
+- Reconnect the server. In clients that cannot edit a connector after creation (ChatGPT), create
+  a new connector with the correct URL.
 
-- The client did not load the Actor-specific `tools=` URL.
-- The client only exposes generic Apify tools.
+### A tool name is not recognised
 
-Practical next steps:
+- Ask the client to list its available tools. Map the step to whatever is present.
+- If `get-actor-output` or `add-actor` is suggested, that is stale information — use
+  `get-dataset-items` with the Dataset ID instead.
 
-- Use `https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper`.
-- Reconnect the MCP server.
-- Use `search-actors` and `call-actor`.
+### I got a Run but no transcript
+
+- Read `get-actor-run` first: `FAILED`, `TIMED-OUT`, `ABORTED` are Run-level failures.
+- Then read `get-dataset-items`: an empty dataset and an item with `errMsg` are different
+  outcomes and need different handling.
+- Re-read the dataset once before concluding it is empty.
+
+### Output looks cut off
+
+- It usually is a client-side display limit. Ask for `get-dataset-items` with an explicit
+  `limit` and `offset`.
+- Do not start another Run to "get the rest".
 
 ### Authentication error
 
-Likely causes:
+- OAuth flow not completed, or a token that is missing, expired, or lacks access.
+- Re-authorise, or fix the token in secure local/server config. Never paste it into the chat.
 
-- OAuth connection is incomplete.
-- Token is missing or invalid.
+### 429 or rate limits
 
-Practical next steps:
+- Reduce concurrency, back off, and check Apify usage.
+- The Actor's real rate-limit semantics are unverified; treat retries as potentially billable.
 
-- Reconnect OAuth.
-- Check secure config.
-- Replace `YOUR_APIFY_TOKEN` with a valid token in local or server-side config.
+## Still unverified
 
-### Actor run takes too long
-
-Likely causes:
-
-- Transcript extraction can take time depending on content and platform response.
-
-Practical next steps:
-
-- Wait for completion.
-- Ask the client to check run status.
-- Use direct API examples for production timeouts and retries.
-
-### Output preview is incomplete
-
-Likely causes:
-
-- Some MCP clients truncate tool output previews.
-
-Practical next steps:
-
-- Ask the client to call `get-actor-output`.
-- Fetch the dataset items.
-
-### Empty transcript or `errMsg`
-
-Likely causes:
-
-- Reel is unavailable, private, unsupported, or has no usable transcript.
-
-Practical next steps:
-
-- Check `errMsg`.
-- Verify the URL is public or authorized.
-- Test another Reel URL.
-
-### 429 / rate limits
-
-Likely causes:
-
-- Too many calls or platform/API limits.
-
-Practical next steps:
-
-- Lower concurrency.
-- Retry with backoff.
-- Monitor Apify usage.
-
-### Client cannot use remote MCP URL
-
-Likely causes:
-
-- The client may only support stdio MCP servers.
-
-Practical next steps:
-
-- Use the local stdio setup with `npx` and `APIFY_TOKEN`.
-
-## Security notes
-
-- Do not paste API tokens into normal chat messages.
-- Do not commit MCP config files containing tokens.
-- Use OAuth where available.
-- Prefer server-side config for production.
-- Do not use for private or unauthorized content.
+- Whether any of these tool names behave identically across client versions; only the official
+  tool list was checked, not a live connection.
+- Whether an agent reliably chooses `get-dataset-items` over a preview when both are available.
+- Dataset visibility timing after `SUCCEEDED`, and whether `errMsg` and `text` can coexist.
+- One-result-per-URL mapping, ordering, and partial-failure shape in native bulk mode.
+- Profile `timestamp` semantics, `type` enumeration, and the share-count output key.
+- Whether `maxTotalChargeUsd` is honoured per Run as expected for this Actor.
 
 ## Related docs
 
-- [Use with ChatGPT via Apify MCP](use-with-chatgpt-mcp.md)
-- [Use with Claude via Apify MCP](use-with-claude-mcp.md)
-- [Use with Gemini CLI via Apify MCP](use-with-gemini-cli-mcp.md)
-- [Use with Cursor and VS Code via Apify MCP](use-with-cursor-vscode-mcp.md)
+- [Use with ChatGPT](use-with-chatgpt-mcp.md)
+- [Use with Claude](use-with-claude-mcp.md)
+- [Use with Gemini CLI](use-with-gemini-cli-mcp.md)
+- [Use with Cursor and VS Code](use-with-cursor-vscode-mcp.md)
+- [Input and output fields](input-output-fields.md)
+- [Error handling and retries](error-handling-and-retries.md)
 - [Prompt recipes for Reels analysis](prompt-recipes-for-reels-analysis.md)
 - [AI agent use cases](ai-agent-use-cases.md)
+- Official: [Apify MCP server documentation](https://docs.apify.com/mcp)

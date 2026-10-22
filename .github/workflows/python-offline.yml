@@ -1,4 +1,4 @@
-name: Python offline tests
+name: Offline integration tests
 
 on:
   push:
@@ -34,3 +34,43 @@ jobs:
         run: python -m unittest discover -s tests/python -v
       - name: Compile Python examples and tests
         run: python -m compileall -q examples/python tests/python scripts
+
+  node-offline:
+    name: Node ${{ matrix.node-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node-version: '18'
+          - os: ubuntu-latest
+            node-version: '20'
+          - os: ubuntu-latest
+            node-version: '22'
+          - os: windows-latest
+            node-version: '20'
+          - os: macos-latest
+            node-version: '20'
+    env:
+      APIFY_TOKEN: ''
+      INSTAGRAM_SESSIONID: ''
+    defaults:
+      run:
+        working-directory: examples/nodejs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: examples/nodejs/package-lock.json
+      - name: Confirm no dotenv file is present in the checkout
+        run: node -e "const fs = require('node:fs'); if (fs.existsSync('../../.env')) throw new Error('CI must not use a local .env file')"
+      - name: Install locked Node.js dependencies
+        run: npm ci --ignore-scripts
+      - name: Check ESM syntax
+        run: node -e "const {spawnSync}=require('node:child_process'); for (const file of ['reliable-actor.mjs','single-url.mjs','native-bulk.mjs','batch-csv.mjs']) { const result=spawnSync(process.execPath,['--check',file],{stdio:'inherit'}); if (result.status !== 0) process.exit(result.status || 1); }"
+      - name: Run offline Node.js tests
+        working-directory: .
+        run: node --test

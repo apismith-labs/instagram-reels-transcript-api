@@ -7,12 +7,12 @@ creation, Run polling, and Dataset reads are explicit REST calls, because the re
 behaviour below depends on controlling each stage separately. `p-limit` is used only to bound
 batch concurrency.
 
-**Verified scope.** On Actor Build `0.0.50`, Node.js has recorded live success for the single-URL
+**Previously verified scope.** Node.js has historical live success records for the single-URL
 path and one Native Bulk Run using the three fixed Reel URLs in the TC02 fixture; all three bulk
-results succeeded. This does not verify arbitrary bulk sizes, mixed success/failure cases, CSV
-Batch against live URLs, Profile inputs, MCP clients, or the newer `enhancedcrawl` option. Build
-`0.0.51` and later Builds are also outside this evidence. Python has separate live acceptance
-records; they do not expand the Node.js evidence described here.
+results succeeded. This batch changes the default request to pin and verify Build `0.0.50`, so the
+historical records do not verify the new pinned-Build request path. No new live Actor call is part
+of this batch. Arbitrary bulk sizes, mixed success/failure cases, CSV Batch, Profile inputs, MCP
+clients, and the newer `enhancedcrawl` option remain outside the recorded Node.js evidence.
 
 ## What the examples do
 
@@ -21,7 +21,8 @@ records; they do not expand the Node.js evidence described here.
 - `batch-csv.mjs` — reads URLs from a CSV and runs **one Actor Run per row**.
 - `reliable-actor.mjs` — shared staged runner: REST transport, business-status classification,
   retry policy, JSONL journal, and result sanitisation. Importing it performs no I/O.
-- All scripts load `.env` from the repository root.
+- Requesting CLI runs load `.env` from the repository root. Importing the modules and CSV
+  `--dry-run` do not read it.
 - Results are written under `sample-output/generated/`.
 
 ### How the calls are made
@@ -31,7 +32,7 @@ records; they do not expand the Node.js evidence described here.
 | Create Run | `POST https://api.apify.com/v2/acts/{owner~name}/runs` with `Authorization: Bearer <token>` |
 | Poll Run | `GET /v2/actor-runs/{runId}` until `SUCCEEDED` / `FAILED` / `TIMED-OUT` / `ABORTED` |
 | Read Dataset | `GET /v2/datasets/{datasetId}/items` (first page; an empty response is rechecked twice on the same Dataset) |
-| Journal | One JSON line appended per stage to `sample-output/generated/nodejs-run-journal.jsonl`, file mode `0600` |
+| Journal | One JSON line appended per stage to `sample-output/generated/nodejs-run-journal.jsonl`; POSIX mode `0600`, Windows inherited ACL |
 | Recovery | `--resume RUN_ID` re-reads the journal and re-polls the **existing** Run; it never re-creates one |
 
 Run creation, polling, and Dataset reads are three separate stages with separate retry rules: a
@@ -56,9 +57,8 @@ cd ../..
 lifecycle scripts (none of the three dependencies define one). Use `npm install` only when you
 intend to change dependency ranges.
 
-The lockfile pins `resolved` URLs to `registry.npmmirror.com`. That is a mirror, not the default
-npm registry, so installs from another network must be able to reach it; if it is unreachable,
-regenerate the lockfile against a registry you can reach instead of editing it by hand.
+The lockfile resolves packages from the official `registry.npmjs.org` host and pins integrity
+hashes, so the same locked dependency versions can be installed in CI and on developer machines.
 
 ## Configure `.env`
 
@@ -84,16 +84,14 @@ MAX_CONCURRENCY=3
 | `APIFY_ACTOR_ID` | No | all scripts | Defaults to `apple_yang/instagram-transcripts-scraper` |
 | `INSTAGRAM_SESSIONID` | No | all scripts | Omitted when blank; explicitly set values are forwarded, but runtime effect is unverified |
 | `MAX_CONCURRENCY` | No | `batch-csv.mjs` | Defaults to `3`; must parse as a positive integer or the script exits `2` |
-| `INSTAGRAM_REEL_URL` | No | `single-url.mjs` | Fallback when no URL argument is given; prefer the CLI argument |
 | `APIFY_MAX_TOTAL_CHARGE_USD` | No | all Node.js runners | Optional positive per-Run USD charge limit, sent as a Run API query option |
 | `APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD` | No | all Node.js runners | Set to `1` to fail closed before POST when the limit is missing or invalid; use for approved controlled tests |
-| `APIFY_BUILD` | No | all Node.js runners | Explicit numeric Build number (for example `0.0.50`). Tags such as `latest` are rejected. Sent as a Run API query option, never as Actor input |
-| `APIFY_REQUIRE_BUILD` | No | all Node.js runners | Set to `1` to require `APIFY_BUILD` and to accept only the pinned Build `0.0.50`; the created Run's `buildNumber`/`buildId` must then match or the run is not accepted |
+| `APIFY_BUILD` | No | all Node.js runners | Defaults to the verified Build `0.0.50`; an explicit numeric override is sent as a Run query option and still requires actual Run Build identity verification. Tags such as `latest` are rejected |
 
 Quote values that contain special characters such as `&` or `?`. Never commit `.env` or real
 tokens.
 
-For a controlled test, set `APIFY_MAX_TOTAL_CHARGE_USD` to the approved per-Run limit and
+Every new Run explicitly sends `restartOnError=false` as a Run query option. For a controlled test, set `APIFY_MAX_TOTAL_CHARGE_USD` to the approved per-Run limit and
 `APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD=1`. The cap is a Run option, not Actor input. An API
 rejection stops that attempt; the runner never retries the creation POST without the limit.
 The platform may enforce an Actor-configured minimum, and the final charge can slightly
@@ -102,16 +100,18 @@ budget guarantee.
 
 ## Run a single URL
 
-Pass a **bare** public Instagram URL — no Markdown link syntax, no surrounding `[text](url)`, no
-quotes copied from a rendered chat message. The argument is forwarded verbatim as the Actor's
-`videoUrl`, so a wrapped value is sent as-is and fails as an invalid URL.
+Pass a **bare** public Instagram Reel URL explicitly — no Markdown link syntax, query string, or
+fragment. The URL is validated before credentials are read or a Run is created. No URL is ever
+inferred from `INSTAGRAM_REEL_URL`; the only URL-less invocation is `--resume RUN_ID`.
 
 ```bash
 node examples/nodejs/single-url.mjs "https://www.instagram.com/reel/your_reel_id/"
 ```
 
-The script prints one JSON line with `rowId`, `sourceUrl`, `runId`, `datasetId`, `status`, and
-`error` (absent values are printed as `null`), and writes the sanitised Dataset items to:
+The script defaults to Build `0.0.50` and checks the Run's actual Build number and Build ID before
+accepting its Dataset. An explicit `APIFY_BUILD` override is also checked. The script prints one
+JSON line with `rowId`, `sourceUrl`, `runId`, `datasetId`, `status`, `error`, and
+`datasetComplete` (absent values are printed as `null`), and writes sanitised output to:
 
 ```text
 sample-output/generated/nodejs-single-url-response.json
@@ -135,8 +135,9 @@ Only exit code `0` means a transcript was produced.
 
 ## Run the Native Bulk example
 
-`native-bulk.mjs` reads `tests/fixtures/live/tc02-native-bulk.json` and sends its three `bulkUrls`
-in one Actor Run. With the required environment configured, run:
+`native-bulk.mjs` reads `tests/fixtures/live/tc02-native-bulk.json`, validates its `bulkUrls`, and
+sends all three in one Actor Run. It defaults to Build `0.0.50` and verifies the returned Build
+identity. With the required environment configured, run:
 
 ```bash
 node examples/nodejs/native-bulk.mjs
@@ -161,13 +162,17 @@ code `2`. Each call is bounded by a 15-minute overall deadline.
 ## Run batch CSV processing
 
 ```bash
-node examples/nodejs/batch-csv.mjs                        # uses sample-data/instagram-reel-urls.csv
-node examples/nodejs/batch-csv.mjs path/to/urls.csv       # or your own file
+node examples/nodejs/batch-csv.mjs path/to/urls.csv --dry-run
+node examples/nodejs/batch-csv.mjs path/to/urls.csv --concurrency 2
 ```
 
-- The CSV must contain a `videoUrl` column; rows with an empty value are skipped.
+- The CSV path is required; no sample path is selected automatically. `--dry-run` validates every
+  non-empty URL and reports the row count, concurrency, maximum possible Run count, selected Build,
+  and configured Run charge cap. It does not load `.env`, read the Token, or create Runs.
+- The CSV must contain a `videoUrl` column; rows with an empty value are skipped. Invalid URLs are
+  rejected with their CSV line number before any Run starts.
 - **Each row creates its own Actor Run.** This is not the Actor's native `bulkUrls` mode.
-- `MAX_CONCURRENCY` bounds how many Runs are in flight at once (default `3`). Higher values
+- `--concurrency N` or `MAX_CONCURRENCY` bounds how many Runs are in flight at once (default `3`). Higher values
   increase cost and rate-limit exposure.
 - The CSV line number is kept as `rowId`, so duplicate URLs are still traceable to the input row.
 - The CSV reader is deliberately simple and line-based: quoted fields containing embedded
@@ -175,23 +180,27 @@ node examples/nodejs/batch-csv.mjs path/to/urls.csv       # or your own file
 
 Outputs:
 
-```text
-sample-output/generated/nodejs-batch-results.jsonl   # one sanitised result per row
-sample-output/generated/nodejs-batch-errors.csv      # rowId, sourceUrl, runId, status, error
-```
+The results and error CSV use unique names under `sample-output/generated/` and never overwrite
+earlier batch outputs. Each result row retains its original input URL, status, Run/Dataset IDs,
+error and raw sanitised Actor fields. If journal persistence fails after Run creation, that result
+returns the known Run ID and stops the batch from starting more rows; inspect the Run history before
+recovery. Journal appends are serialized within the current Node.js process. CSV Batch has no
+`--resume`; single URL and Native Bulk can resume journaled Runs.
 
 The script prints a JSON summary containing every status count plus `processed` and `failed`,
 where `failed = processed - success`. Exit code is `0` when every row succeeded, `1` when at
 least one row did not, and `2` for configuration errors.
 
-**CSV Batch has no `--resume`.** `single-url.mjs` and `native-bulk.mjs` support resuming a specific Run recorded in the journal.
+Node.js Profile mode is not implemented. This batch adds no new live Actor validation; prior live
+records remain limited to their documented Build and input cases.
 
 ## Security
 
 Do not hard-code `APIFY_TOKEN` or `INSTAGRAM_SESSIONID`. Keep secrets in `.env` or your
 deployment secret manager, and never commit `.env`. Persisted results pass through a sanitiser
 that drops credential-like keys and redacts common credential assignments. Journal and result
-files use owner-only `0600` permissions, but stored Actor output should still be treated as sensitive.
+files request owner-only `0600` permissions where the platform supports POSIX modes; on Windows,
+filesystem ACLs apply. Stored Actor output should still be treated as sensitive.
 
 ## Verifying behaviour offline
 

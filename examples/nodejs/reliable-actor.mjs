@@ -10,6 +10,13 @@ export const CONTROLLED_BUILD_ID = 'aJLRmMdQapLQRT4sJ';
 export function buildRunInput(videoUrl, sessionid) { return { videoUrl, ...(sessionid ? { sessionid } : {}) }; }
 export const DATASET_PAGE_LIMIT = 100;
 export const BULK_EXIT_CODES = { all_success: 0, partial_success: 11, all_failed: 12, unknown: 13 };
+const REEL_URL = /^https:\/\/(?:www\.)?instagram\.com\/(?:reel|reels|p)\/[A-Za-z0-9_-]+\/?$/;
+export function validateVideoUrl(value) {
+  if (typeof value !== 'string' || !value || value.trim() !== value || !REEL_URL.test(value)) {
+    throw new TypeError('URL must be a bare HTTPS Instagram Reel URL, not a Markdown link');
+  }
+  return value;
+}
 export function validateBulkRunInput(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('Native Bulk input must be a JSON object');
   if (Object.hasOwn(input, 'videoUrl') || Object.hasOwn(input, 'usernames')) throw new TypeError('Native Bulk input must not include videoUrl or usernames');
@@ -21,14 +28,15 @@ export function validateBulkRunInput(input) {
   if (Object.hasOwn(input, 'resultsLimit') && (!Number.isInteger(input.resultsLimit) || input.resultsLimit < 1)) throw new TypeError('resultsLimit must be a positive integer');
   if (Object.hasOwn(input, 'skipPinnedPosts') && typeof input.skipPinnedPosts !== 'boolean') throw new TypeError('skipPinnedPosts must be a boolean');
   const urls = input.bulkUrls.map((value, index) => {
-    if (typeof value !== 'string' || !value || value.trim() !== value || /[\[\]()]/.test(value)) throw new TypeError(`bulkUrls[${index}] must be a bare Instagram URL`);
-    let parsed;
-    try { parsed = new URL(value); } catch { throw new TypeError(`bulkUrls[${index}] must be a valid Instagram URL`); }
-    if (parsed.protocol !== 'https:' || !['instagram.com', 'www.instagram.com'].includes(parsed.hostname) || parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash || !/^\/(?:reel|reels|p)\/[A-Za-z0-9_-]+\/?$/.test(parsed.pathname) || parsed.href !== value) {
-      throw new TypeError(`bulkUrls[${index}] must be a bare HTTPS Instagram Reel or post URL`);
-    }
-    return value;
+    try { return validateVideoUrl(value); } catch (error) { throw new TypeError(`bulkUrls[${index}]: ${error.message}`); }
   });
+  const keys = new Set(); const codes = new Set();
+  for (const [index, value] of urls.entries()) {
+    const parsed = new URL(value); const key = `https://instagram.com${parsed.pathname}`;
+    const code = parsed.pathname.replace(/\/$/, '').split('/').at(-1);
+    if (keys.has(key) || codes.has(code)) throw new TypeError(`bulkUrls[${index}] duplicates or ambiguously aliases another Reel input`);
+    keys.add(key); codes.add(code);
+  }
   return { ...structuredClone(input), bulkUrls: urls };
 }
 function bulkUrlKey(value) {
@@ -50,26 +58,40 @@ function bulkItemStatus(item) {
 export function attributeBulkItems(bulkUrls, items, { datasetComplete = true } = {}) {
   if (!Array.isArray(bulkUrls) || bulkUrls.length === 0) throw new TypeError('bulkUrls must be a non-empty array');
   if (!Array.isArray(items)) return { mode: 'native_bulk', bulkStatus: 'unknown', datasetComplete: false, inputs: bulkUrls.map((inputUrl) => ({ inputUrl, status: 'unknown', results: [] })), extraResults: [], counts: { success_transcript: 0, actor_error: 0, no_transcript: 0, missing_result: 0, duplicate_result: 0, unknown: bulkUrls.length } };
-  const inputKeys = new Map();
-  bulkUrls.forEach((url, index) => { const key = bulkUrlKey(url); if (key) inputKeys.set(key, [...(inputKeys.get(key) || []), index]); });
+  const inputKeys = new Map(); const shortcodeIndices = new Map();
+  bulkUrls.forEach((url, index) => {
+    const key = bulkUrlKey(url); if (key) inputKeys.set(key, [...(inputKeys.get(key) || []), index]);
+    const code = new URL(url).pathname.replace(/\/$/, '').split('/').at(-1);
+    shortcodeIndices.set(code, [...(shortcodeIndices.get(code) || []), index]);
+  });
   const mapped = bulkUrls.map(() => []); const extraResults = [];
   for (const item of items) {
-    const key = bulkUrlKey(item?.url); const indices = key ? inputKeys.get(key) : null;
-    if (!indices || indices.length !== 1) {
-      extraResults.push({ status: 'unknown', reason: indices?.length > 1 ? 'ambiguous_duplicate_input_url' : 'unmapped_output_url', result: item });
-      continue;
-    }
-    mapped[indices[0]].push(item);
+    if (!item || typeof item !== 'object' || Array.isArray(item)) { extraResults.push({ status: 'unknown', reason: 'dataset_item_not_object', result: item }); continue; }
+    const itemUrl = item.url; const codeMatches = typeof item.code === 'string' ? (shortcodeIndices.get(item.code) || []) : [];
+    let target = null; let reason = null;
+    if (itemUrl != null) {
+      const key = bulkUrlKey(itemUrl); const indices = key ? (inputKeys.get(key) || []) : [];
+      if (!key) reason = 'invalid_output_url';
+      else if (indices.length !== 1) reason = indices.length > 1 ? 'ambiguous_duplicate_input_url' : 'output_url_not_in_input';
+      else {
+        const parsed = new URL(itemUrl); const urlCode = parsed.pathname.replace(/\/$/, '').split('/').at(-1);
+        if (typeof item.code === 'string' && item.code !== urlCode) reason = 'url_code_conflict';
+        else if (codeMatches.length && (codeMatches.length !== 1 || codeMatches[0] !== indices[0])) reason = 'ambiguous_url_code_mapping';
+        else target = indices[0];
+      }
+    } else if (typeof item.code === 'string') {
+      if (codeMatches.length === 1) target = codeMatches[0]; else reason = 'missing_or_ambiguous_shortcode';
+    } else reason = 'missing_mapping_identity';
+    if (target == null) extraResults.push({ status: 'unknown', reason, result: item }); else mapped[target].push(item);
   }
   const inputs = bulkUrls.map((inputUrl, index) => {
     const results = mapped[index];
-    if (results.length === 0) return { inputUrl, status: 'missing_result', results: [] };
+    if (results.length === 0) return { inputUrl, status: datasetComplete ? 'missing_result' : 'unknown', results: [] };
     if (results.length > 1) return { inputUrl, status: 'duplicate_result', results };
     return { inputUrl, status: bulkItemStatus(results[0]), results };
   });
   const counts = Object.fromEntries(['success_transcript', 'actor_error', 'no_transcript', 'missing_result', 'duplicate_result', 'unknown'].map((status) => [status, inputs.filter((row) => row.status === status).length]));
-  counts.unknown += extraResults.length;
-  const uncertain = !datasetComplete || counts.missing_result > 0 || counts.duplicate_result > 0 || counts.unknown > 0 || inputs.some((row) => row.status === 'unknown');
+  const uncertain = !datasetComplete || extraResults.length > 0 || counts.missing_result > 0 || counts.duplicate_result > 0 || counts.unknown > 0 || inputs.some((row) => row.status === 'unknown');
   const successCount = counts.success_transcript;
   const definiteFailures = counts.actor_error + counts.no_transcript;
   const bulkStatus = uncertain ? 'unknown' : successCount === bulkUrls.length ? 'all_success' : successCount > 0 ? 'partial_success' : definiteFailures === bulkUrls.length ? 'all_failed' : 'unknown';
@@ -96,9 +118,6 @@ export function validateBuildSelection(value, required = false) {
   const build = value.trim();
   if (!/^\d+\.\d+\.\d+$/.test(build) || build.toLowerCase() === 'latest') {
     throw new TypeError('APIFY_BUILD must be an explicit numeric Build number, not a tag such as latest');
-  }
-  if (required && build !== CONTROLLED_BUILD_NUMBER) {
-    throw new TypeError(`APIFY_REQUIRE_BUILD=1 only permits Build ${CONTROLLED_BUILD_NUMBER}`);
   }
   return build;
 }
@@ -127,11 +146,31 @@ export class RestTransport {
 }
 export class RunJournal {
   constructor(file) { this.file = file; }
-  async validate() { try { const rows = (await readFile(this.file, 'utf8')).split(/\r?\n/).filter(Boolean); for (const [index, row] of rows.entries()) { let item; try { item = JSON.parse(row); } catch { throw new Error(`Run journal is corrupt at record ${index + 1}; refusing to continue`); } if (!item || Array.isArray(item) || typeof item !== 'object') throw new Error(`Run journal record ${index + 1} is not an object; refusing to continue`); } } catch (error) { if (error.code !== 'ENOENT') throw error; } }
-  async append(record) { await this.validate(); await mkdir(path.dirname(this.file), { recursive: true }); const handle = await open(this.file, 'a', 0o600); try { await chmod(this.file, 0o600); await handle.writeFile(`${JSON.stringify(record)}\n`); await handle.sync(); } finally { await handle.close(); } }
-  async latest(runId) { try { const rows = (await readFile(this.file, 'utf8')).split(/\r?\n/).filter(Boolean); let found; for (const [index, row] of rows.entries()) { let item; try { item = JSON.parse(row); } catch { throw new Error(`Run journal is corrupt at record ${index + 1}; refusing resume`); } if (!item || Array.isArray(item) || typeof item !== 'object') throw new Error(`Run journal record ${index + 1} is not an object; refusing resume`); if (item.runId === runId) found = item; } return found || null; } catch (e) { if (e.code === 'ENOENT') return null; throw e; } }
+  async validate() { return withJournalLock(this.file, () => this.validateUnlocked()); }
+  async validateUnlocked() { try { const rows = (await readFile(this.file, 'utf8')).split(/\r?\n/).filter(Boolean); for (const [index, row] of rows.entries()) { let item; try { item = JSON.parse(row); } catch { throw new Error(`Run journal is corrupt at record ${index + 1}; refusing to continue`); } if (!item || Array.isArray(item) || typeof item !== 'object') throw new Error(`Run journal record ${index + 1} is not an object; refusing to continue`); } } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+  async append(record) { return withJournalLock(this.file, async () => {
+      await this.validateUnlocked(); await mkdir(path.dirname(this.file), { recursive: true });
+      const handle = await open(this.file, 'a', 0o600);
+      try { try { await chmod(this.file, 0o600); } catch (error) { if (!['EPERM', 'ENOSYS', 'EOPNOTSUPP'].includes(error.code)) throw error; } await handle.writeFile(`${JSON.stringify(record)}\n`); await handle.sync(); } finally { await handle.close(); }
+    }); }
+  async latest(runId) { return withJournalLock(this.file, async () => { try { const rows = (await readFile(this.file, 'utf8')).split(/\r?\n/).filter(Boolean); let found; for (const [index, row] of rows.entries()) { let item; try { item = JSON.parse(row); } catch { throw new Error(`Run journal is corrupt at record ${index + 1}; refusing resume`); } if (!item || Array.isArray(item) || typeof item !== 'object') throw new Error(`Run journal record ${index + 1} is not an object; refusing resume`); if (item.runId === runId) found = item; } return found || null; } catch (e) { if (e.code === 'ENOENT') return null; throw e; } }); }
 }
-export async function writePrivate(file, text) { await mkdir(path.dirname(file), { recursive: true }); try { await chmod(file, 0o600); } catch (error) { if (error.code !== 'ENOENT') throw error; } const handle = await open(file, 'w', 0o600); try { await chmod(file, 0o600); await handle.writeFile(text); await handle.sync(); } finally { await handle.close(); } }
+const journalTails = new Map();
+async function withJournalLock(file, operationFn) {
+  const key = path.resolve(file); const previous = journalTails.get(key) || Promise.resolve();
+  const operation = previous.catch(() => {}).then(operationFn); journalTails.set(key, operation);
+  try { return await operation; } finally { if (journalTails.get(key) === operation) journalTails.delete(key); }
+}
+export async function writePrivate(file, text) { await mkdir(path.dirname(file), { recursive: true }); const handle = await open(file, 'w', 0o600); try { try { await chmod(file, 0o600); } catch (error) { if (!['EPERM', 'ENOSYS', 'EOPNOTSUPP'].includes(error.code)) throw error; } await handle.writeFile(text); await handle.sync(); } finally { await handle.close(); } }
+export async function writePrivateUnique(file, text, { uuid = randomUUID } = {}) {
+  await mkdir(path.dirname(file), { recursive: true }); const extension = path.extname(file); const stem = path.basename(file, extension);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = path.join(path.dirname(file), `${stem}-${uuid()}${extension}`);
+    try { const handle = await open(candidate, 'wx', 0o600); try { await handle.writeFile(text); await handle.sync(); } finally { await handle.close(); } return candidate; }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+  }
+  throw new Error(`Could not reserve a unique output path for ${path.basename(file)}`);
+}
 export async function loadResumeRecord(journal, runId, actorId, expectedBuild = null) {
   const record = await journal.latest(runId);
   if (!record) throw new Error(`No journal record found for Run ID ${runId}; refusing resume`);
@@ -215,7 +254,9 @@ export async function executeInput({ transport, actorId, runInput, sourceUrl, in
   const deadline = Date.now() + deadlineMs;
   const rowId = inputRowId || randomUUID();
   const record = { rowId, sourceUrl, actorId, runId: resumeRunId, datasetId: resumeDatasetId, ...(inputContext ? { inputContext } : {}), stage: 'start', status: 'unknown', updatedAt: new Date().toISOString() };
-  const save = async (stage, status = 'unknown', error) => { Object.assign(record, { stage, status, updatedAt: new Date().toISOString() }); if (error) record.error = safeError(error); else delete record.error; await journal.append({ ...record }); };
+  let persistenceError = null;
+  const save = async (stage, status = 'unknown', error) => { Object.assign(record, { stage, status, updatedAt: new Date().toISOString() }); if (error) record.error = safeError(error); else delete record.error; try { await journal.append({ ...record }); return true; } catch (failure) { persistenceError = safeError(failure); return false; } };
+  const persistenceFailure = () => ({ rowId, sourceUrl, status: 'transport_error', runId, datasetId, error: `Run journal persistence failed; do not retry creation. ${persistenceError}`, recoveryPersisted: false });
   let runId = resumeRunId, datasetId = resumeDatasetId;
   let requestedBuild = null;
   let expectedBuild = null;
@@ -226,7 +267,7 @@ export async function executeInput({ transport, actorId, runInput, sourceUrl, in
   try {
     requestedBuild = validateBuildSelection(build, requireBuild && !resumeRunId);
     if (resumeRunId) {
-      if (requireBuild) expectedBuild = CONTROLLED_BUILD_NUMBER;
+      if (requireBuild) expectedBuild = requestedBuild || CONTROLLED_BUILD_NUMBER;
       else if (requestedBuild) expectedBuild = requestedBuild;
       else if (resumeBuildRecord?.buildVerification === 'verified') expectedBuild = resumeBuildRecord.actualBuildNumber;
       else if (typeof resumeBuildRecord?.expectedBuildNumber === 'string') expectedBuild = resumeBuildRecord.expectedBuildNumber;
@@ -249,22 +290,22 @@ export async function executeInput({ transport, actorId, runInput, sourceUrl, in
     let chargeCap;
     try { chargeCap = validateRunChargeCap(maxTotalChargeUsd, requireChargeCap); }
     catch (error) { return { rowId, sourceUrl, status: 'transport_error', runId: null, error: safeError(error) }; }
-    try { await save('creating'); } catch (error) { return { rowId, sourceUrl, status: 'transport_error', runId: null, error: safeError(error) }; }
+    if (!(await save('creating'))) return persistenceFailure();
     const endpoint = `/acts/${actorId.replaceAll('/', '~')}/runs`;
     let created;
-    if (Date.now() >= deadline) { await save('create_failed', 'transport_error', 'Overall run deadline exceeded before POST'); return { rowId, sourceUrl, status: 'transport_error', runId: null, error: 'Overall run deadline exceeded before POST' }; }
-    const runOptions = chargeCap == null && !requestedBuild ? null : { ...(chargeCap == null ? {} : { maxTotalChargeUsd: chargeCap, restartOnError: false }), ...(requestedBuild ? { build: requestedBuild } : {}) };
+    if (Date.now() >= deadline) { const persisted = await save('create_failed', 'transport_error', 'Overall run deadline exceeded before POST'); return { rowId, sourceUrl, status: 'transport_error', runId: null, error: 'Overall run deadline exceeded before POST', ...(persisted ? {} : { recoveryPersisted: false }) }; }
+    const runOptions = { restartOnError: false, ...(chargeCap == null ? {} : { maxTotalChargeUsd: chargeCap }), ...(requestedBuild ? { build: requestedBuild } : {}) };
     try { created = await transport.request('POST', endpoint, runInput, Math.max(1, Math.min(30_000, deadline - Date.now())), runOptions); }
     catch (error) {
       let status = error.ambiguous || error.status == null ? 'creation_unknown' : 'transport_error';
       if (error.status === 429) { status = 'creation_unknown'; error = new ApiError('HTTP 429 on Run creation; acceptance semantics are unverified; POST was not retried', { status: 429 }); }
-      await save(status === 'creation_unknown' ? status : 'create_failed', status, error);
-      return { rowId, sourceUrl, status, runId: null, error: safeError(error) };
+      const persisted = await save(status === 'creation_unknown' ? status : 'create_failed', status, error);
+      return { rowId, sourceUrl, status, runId: null, error: safeError(error), ...(persisted ? {} : { recoveryPersisted: false }) };
     }
     created = created && typeof created === 'object' && !Array.isArray(created) ? (created.data || created) : null;
     finalRun = created;
     runId = created?.id; datasetId = created?.defaultDatasetId;
-    if (!runId) { await save('creation_unknown', 'creation_unknown', 'POST response did not include a run ID'); return { rowId, sourceUrl, status: 'creation_unknown', runId: null, error: 'POST response did not include a run ID' }; }
+    if (!runId) { const persisted = await save('creation_unknown', 'creation_unknown', 'POST response did not include a run ID'); return { rowId, sourceUrl, status: 'creation_unknown', runId: null, error: 'POST response did not include a run ID', ...(persisted ? {} : { recoveryPersisted: false }) }; }
     Object.assign(record, { runId, datasetId, ...(expectedBuild ? { requestedBuild, expectedBuildNumber: expectedBuild } : {}) });
     if (expectedBuild) {
       observedBuildNumber = typeof created.buildNumber === 'string' ? created.buildNumber : null;
@@ -272,21 +313,21 @@ export async function executeInput({ transport, actorId, runInput, sourceUrl, in
       const hasAnyBuildIdentity = observedBuildNumber != null || observedBuildId != null;
       if (hasAnyBuildIdentity && ((observedBuildNumber && observedBuildNumber !== expectedBuild) || (observedBuildId && expectedBuild === CONTROLLED_BUILD_NUMBER && observedBuildId !== CONTROLLED_BUILD_ID))) {
         Object.assign(record, { actualBuildNumber: observedBuildNumber, actualBuildId: observedBuildId, buildVerification: 'mismatch' });
-        await save('build_mismatch', 'transport_error', 'Created Run Build identity does not match the requested Build');
-        return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: 'Created Run Build identity does not match the requested Build', runMetadata: extractRunMetadata(created) };
+        const persisted = await save('build_mismatch', 'transport_error', 'Created Run Build identity does not match the requested Build');
+        return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: 'Created Run Build identity does not match the requested Build', runMetadata: extractRunMetadata(created), ...(persisted ? {} : { recoveryPersisted: false }) };
       }
       if (observedBuildNumber === expectedBuild && observedBuildId) {
         if (expectedBuild === CONTROLLED_BUILD_NUMBER && observedBuildId !== CONTROLLED_BUILD_ID) {
           Object.assign(record, { actualBuildNumber: observedBuildNumber, actualBuildId: observedBuildId, buildVerification: 'mismatch' });
-          await save('build_mismatch', 'transport_error', 'Created Run Build ID does not match the approved Build');
-          return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: 'Created Run Build ID does not match the approved Build', runMetadata: extractRunMetadata(created) };
+          const persisted = await save('build_mismatch', 'transport_error', 'Created Run Build ID does not match the approved Build');
+          return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: 'Created Run Build ID does not match the approved Build', runMetadata: extractRunMetadata(created), ...(persisted ? {} : { recoveryPersisted: false }) };
         }
         buildVerified = true;
         Object.assign(record, { actualBuildNumber: observedBuildNumber, actualBuildId: observedBuildId, buildVerification: 'verified' });
       }
     }
-    await save('run_created');
-  } else { Object.assign(record, { runId, datasetId }); await save('resuming'); }
+    if (!(await save('run_created'))) return persistenceFailure();
+  } else { Object.assign(record, { runId, datasetId }); if (!(await save('resuming'))) return persistenceFailure(); }
   try {
     for (;;) {
       if (Date.now() >= deadline) throw new ApiError('Overall run deadline exceeded');
@@ -306,29 +347,29 @@ export async function executeInput({ transport, actorId, runInput, sourceUrl, in
             (runBuildNumber && runBuildNumber !== expectedBuild) ||
             (runBuildId && expectedBuild === CONTROLLED_BUILD_NUMBER && runBuildId !== CONTROLLED_BUILD_ID)) {
           Object.assign(record, { actualBuildNumber: runBuildNumber || observedBuildNumber, actualBuildId: runBuildId || observedBuildId, buildVerification: 'mismatch' });
-          await save('build_mismatch', 'transport_error', 'Run Build identity does not match the requested Build');
-          return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: 'Run Build identity does not match the requested Build', runMetadata: extractRunMetadata(run) };
+          const persisted = await save('build_mismatch', 'transport_error', 'Run Build identity does not match the requested Build');
+          return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: 'Run Build identity does not match the requested Build', runMetadata: extractRunMetadata(run), ...(persisted ? {} : { recoveryPersisted: false }) };
         }
         observedBuildNumber = runBuildNumber || observedBuildNumber;
         observedBuildId = runBuildId || observedBuildId;
         if (observedBuildNumber === expectedBuild && observedBuildId && (expectedBuild !== CONTROLLED_BUILD_NUMBER || observedBuildId === CONTROLLED_BUILD_ID)) {
           buildVerified = true;
           Object.assign(record, { requestedBuild: requestedBuild || null, expectedBuildNumber: expectedBuild, actualBuildNumber: observedBuildNumber, actualBuildId: observedBuildId, buildVerification: 'verified' });
-          if (record.stage !== 'build_verified') await save('build_verified');
+          if (record.stage !== 'build_verified' && !(await save('build_verified'))) return persistenceFailure();
         } else if (!buildVerified && (TERMINAL.has(run.status) || runBuildNumber || runBuildId)) {
           Object.assign(record, { actualBuildNumber: observedBuildNumber, actualBuildId: observedBuildId, buildVerification: 'unverified' });
-          await save('build_unverified', 'transport_error', 'Run response did not provide sufficient Build identity');
-          return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: 'Run response did not provide sufficient Build identity', runMetadata: extractRunMetadata(run) };
+          const persisted = await save('build_unverified', 'transport_error', 'Run response did not provide sufficient Build identity');
+          return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: 'Run response did not provide sufficient Build identity', runMetadata: extractRunMetadata(run), ...(persisted ? {} : { recoveryPersisted: false }) };
         }
       }
       if (TERMINAL.has(run.status)) {
-        if (run.status !== 'SUCCEEDED') { await save('run_finished', 'run_failed', `Run ended with ${run.status}`); return { rowId, sourceUrl, runId, datasetId, status: 'run_failed', error: `Run ended with ${run.status}`, runMetadata: extractRunMetadata(run) }; }
+        if (run.status !== 'SUCCEEDED') { if (!(await save('run_finished', 'run_failed', `Run ended with ${run.status}`))) return persistenceFailure(); return { rowId, sourceUrl, runId, datasetId, status: 'run_failed', error: `Run ended with ${run.status}`, runMetadata: extractRunMetadata(run) }; }
         if (datasetId && run.defaultDatasetId && datasetId !== run.defaultDatasetId) throw new ApiError('Journal Dataset ID does not match the Run response');
-        datasetId = datasetId || run.defaultDatasetId; record.datasetId = datasetId; await save('run_finished'); break;
+        datasetId = datasetId || run.defaultDatasetId; record.datasetId = datasetId; if (!(await save('run_finished'))) return persistenceFailure(); break;
       }
       await sleepFn(Math.min(2_000, Math.max(0, deadline - Date.now())));
     }
-    if (!datasetId) { await save('recoverable', 'transport_error', 'Run succeeded without a dataset ID'); return { rowId, sourceUrl, runId, status: 'transport_error', error: 'Run succeeded without a dataset ID' }; }
+    if (!datasetId) { if (!(await save('recoverable', 'transport_error', 'Run succeeded without a dataset ID'))) return persistenceFailure(); return { rowId, sourceUrl, runId, status: 'transport_error', error: 'Run succeeded without a dataset ID' }; }
     const datasetQuery = datasetPageLimit ? { limit: datasetPageLimit, offset: 0 } : null;
     let items = await getWithRetry(transport, `/datasets/${datasetId}/items`, deadline, maxAttempts, sleepFn, datasetQuery);
     // Dataset visibility can lag terminal Run status; confirm empty reads on the same Dataset.
@@ -338,17 +379,19 @@ export async function executeInput({ transport, actorId, runInput, sourceUrl, in
       await sleepFn(waitMs);
       items = await getWithRetry(transport, `/datasets/${datasetId}/items`, deadline, maxAttempts, sleepFn, datasetQuery);
     }
-    const [status, message] = classifyItems(items); await save('complete', status, message || null);
+    const [status, message] = classifyItems(items); if (!(await save('complete', status, message || null))) return persistenceFailure();
     return { rowId, sourceUrl, runId, datasetId, status, error: message, rawItems: items,
       datasetComplete: datasetPageLimit ? Array.isArray(items) && items.length < datasetPageLimit : null,
       datasetReadLimit: datasetPageLimit, runMetadata: extractRunMetadata(finalRun) };
   } catch (error) {
+    if (persistenceError) return persistenceFailure();
     if (expectedBuild && !buildVerified) {
       Object.assign(record, { actualBuildNumber: observedBuildNumber, actualBuildId: observedBuildId, buildVerification: 'unverified' });
-      await save('build_unverified', 'transport_error', error);
+      if (!(await save('build_unverified', 'transport_error', error))) return persistenceFailure();
       return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: safeError(error), runMetadata: finalRun ? extractRunMetadata(finalRun) : null };
     }
-    await save('recoverable', 'transport_error', error); return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: safeError(error), runMetadata: finalRun ? extractRunMetadata(finalRun) : null };
+    if (!(await save('recoverable', 'transport_error', error))) return persistenceFailure();
+    return { rowId, sourceUrl, runId, datasetId, status: 'transport_error', error: safeError(error), runMetadata: finalRun ? extractRunMetadata(finalRun) : null };
   }
 }
 export async function loadBulkResumeRecord(journal, runId, actorId, bulkInput, expectedBuild = null) {

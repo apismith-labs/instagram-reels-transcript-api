@@ -51,6 +51,12 @@ test('Native Bulk input rejects empty, malformed, Markdown, and mixed-mode input
   } finally { await cleanup(dir); }
 });
 
+test('Native Bulk rejects duplicate URLs and host aliases before any POST', async () => {
+  const first = 'https://www.instagram.com/reels/synthetic-duplicate/';
+  assert.throws(() => validateBulkRunInput({ bulkUrls: [first, first] }), /duplicates/);
+  assert.throws(() => validateBulkRunInput({ bulkUrls: [first, first.replace('www.', '')] }), /duplicates/);
+});
+
 test('Native Bulk inherits fail-closed Build and charge-cap gates before POST', async () => {
   const input = await readTc02();
   for (const options of [
@@ -134,7 +140,7 @@ test('bulk attribution marks missing, duplicate, and extra outputs without dropp
   assert.equal(mapped.extraResults.length, 2);
   assert.equal(mapped.counts.duplicate_result, 1);
   assert.equal(mapped.counts.missing_result, 1);
-  assert.equal(mapped.counts.unknown, 2);
+  assert.equal(mapped.counts.unknown, 0, 'counts are per-input rows; extras stay in extraResults');
 });
 
 test('URL mapping only folds www host variance and refuses path or trailing-slash guesses', async () => {
@@ -146,6 +152,24 @@ test('URL mapping only folds www host variance and refuses path or trailing-slas
   assert.equal(rows.inputs[0].status, 'success_transcript');
   assert.equal(rows.extraResults.length, 1);
   assert.equal(rows.bulkStatus, 'unknown');
+});
+
+test('Native Bulk uses a unique shortcode only when output URL is absent and rejects conflicting code', async () => {
+  const input = await readTc02(); const first = input.bulkUrls[0]; const code = new URL(first).pathname.split('/').filter(Boolean).at(-1);
+  const byCode = attributeBulkItems([first], [{ code, text: 'Synthetic transcript.' }]);
+  assert.equal(byCode.inputs[0].status, 'success_transcript');
+  const conflict = attributeBulkItems([first], [{ url: first, code: 'different-code', text: 'Synthetic transcript.' }]);
+  assert.equal(conflict.inputs[0].status, 'missing_result');
+  assert.equal(conflict.extraResults[0].reason, 'url_code_conflict');
+  assert.equal(conflict.bulkStatus, 'unknown');
+});
+
+test('missing output under an incomplete Dataset is unknown per input, not a definite miss', async () => {
+  const input = await readTc02();
+  const result = attributeBulkItems(input.bulkUrls, [], { datasetComplete: false });
+  assert.deepEqual(result.inputs.map((row) => row.status), ['unknown', 'unknown', 'unknown']);
+  assert.equal(result.bulkStatus, 'unknown');
+  assert.deepEqual(result.counts, { success_transcript: 0, actor_error: 0, no_transcript: 0, missing_result: 0, duplicate_result: 0, unknown: 3 });
 });
 
 test('ambiguous duplicate input URLs never associate one output with multiple inputs', async () => {
@@ -217,7 +241,8 @@ test('Run metadata archive is separate, private, credential-free, and preserves 
       actorId, runId: 'run-meta', chargeCap: 0.3, chargeCapRequired: true, buildVerification: 'verified' });
     await archive.append(record);
     const text = await readFile(archive.file, 'utf8'); const saved = JSON.parse(text);
-    assert.equal((await stat(archive.file)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal((await stat(archive.file)).mode & 0o777, 0o600);
+    else assert.equal((await stat(archive.file)).isFile(), true);
     assert.equal(saved.usageTotalUsd, null); assert.equal(saved.chargedEventCounts, null);
     assert.equal(saved.chargeCap.configuredValue, 0.3);
     assert.equal('token' in saved, false); assert.equal('sessionid' in saved, false);

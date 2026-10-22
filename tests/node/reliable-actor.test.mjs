@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ApiError, CONTROLLED_BUILD_ID, CONTROLLED_BUILD_NUMBER, EXIT_CODES, RestTransport, RunJournal, buildRunInput, classifyItems, executeInput, loadResumeRecord, sanitize, summarize, validateBuildSelection, validateRunChargeCap, writePrivate } from '../../examples/nodejs/reliable-actor.mjs';
+import { ApiError, CONTROLLED_BUILD_ID, CONTROLLED_BUILD_NUMBER, EXIT_CODES, RestTransport, RunJournal, buildRunInput, classifyItems, executeInput, loadResumeRecord, sanitize, summarize, validateBuildSelection, validateRunChargeCap, writePrivate, writePrivateUnique } from '../../examples/nodejs/reliable-actor.mjs';
 import { FakeTransport, loadFixture } from './offline-support.mjs';
 
 const url = 'https://www.instagram.com/reel/synthetic-test/';
@@ -58,7 +58,22 @@ test('fixed Build is sent only as a Run query option with charge and restart con
   } finally { await cleanup(dir); }
 });
 
-test('Build selection defaults to omitted and invalid or wrong fixed builds do not POST', async () => {
+test('explicit numeric Build override is sent separately and verified from Run identity, not request echo', async () => {
+  const { dir, journal } = await setup();
+  try {
+    const { result, transport } = await runOne(journal, [
+      { data: { id: 'run-build-override', defaultDatasetId: 'ds-build-override', buildNumber: '0.0.51', buildId: 'synthetic-build-id-051' } },
+      { data: { status: 'SUCCEEDED', defaultDatasetId: 'ds-build-override', buildNumber: '0.0.51', buildId: 'synthetic-build-id-051' } },
+      [{ text: 'synthetic transcript' }],
+    ], { build: '0.0.51', requireBuild: true });
+    assert.equal(result.status, 'success'); assert.equal(transport.postCount, 1);
+    assert.deepEqual(transport.requests[0].query, { restartOnError: false, build: '0.0.51' });
+    assert.deepEqual(transport.requests[0].body, { videoUrl: url });
+    assert.equal((await journal.latest('run-build-override')).actualBuildId, 'synthetic-build-id-051');
+  } finally { await cleanup(dir); }
+});
+
+test('Build selection defaults to omitted for low-level callers and rejects non-numeric Build tags', async () => {
   assert.equal(validateBuildSelection(undefined, false), null);
   const defaultCase = await setup();
   try {
@@ -66,9 +81,9 @@ test('Build selection defaults to omitted and invalid or wrong fixed builds do n
       { data: { id: 'run-no-build', defaultDatasetId: 'ds-no-build' } },
       { data: { status: 'SUCCEEDED', defaultDatasetId: 'ds-no-build' } }, [{ text: 'synthetic transcript' }],
     ], { maxTotalChargeUsd: '0.30', requireChargeCap: true });
-    assert.deepEqual(transport.requests[0].query, { maxTotalChargeUsd: 0.3, restartOnError: false });
+    assert.deepEqual(transport.requests[0].query, { restartOnError: false, maxTotalChargeUsd: 0.3 });
   } finally { await cleanup(defaultCase.dir); }
-  for (const build of [undefined, 'latest', 'not-a-version', '0.0.51']) {
+  for (const build of [undefined, 'latest', 'not-a-version']) {
     const { dir, journal } = await setup();
     try {
       const { result, transport } = await runOne(journal, [], { maxTotalChargeUsd: '0.30', requireChargeCap: true, build, requireBuild: true });
@@ -250,7 +265,10 @@ test('Run creation, polling, and Dataset reads share the configured REST fetch t
       journal, maxTotalChargeUsd: '0.30', requireChargeCap: true, sleepFn: async () => {} });
     assert.equal(result.status, 'success');
     assert.deepEqual(calls.map(({ options }) => options.method), ['POST', 'GET', 'GET']);
-    assert.match(calls[0].requestUrl, /\/acts\/synthetic~actor\/runs\?maxTotalChargeUsd=0\.3&restartOnError=false$/);
+    const createUrl = new URL(calls[0].requestUrl);
+    assert.equal(createUrl.pathname, '/v2/acts/synthetic~actor/runs');
+    assert.equal(createUrl.searchParams.get('maxTotalChargeUsd'), '0.3');
+    assert.equal(createUrl.searchParams.get('restartOnError'), 'false');
     assert.match(calls[1].requestUrl, /\/actor-runs\/run-shared-transport$/);
     assert.match(calls[2].requestUrl, /\/datasets\/ds-shared-transport\/items$/);
     assert.ok(calls.every(({ options }) => options.headers.Authorization === 'Bearer synthetic-token'));
@@ -267,7 +285,7 @@ test('run status GET failure retries same run without another POST', async () =>
       { data: { id: 'run-1', status: 'SUCCEEDED', defaultDatasetId: 'ds-1' } }, (await loadFixture('transcript-success.synthetic.json')).items,
     ]);
     assert.equal(result.status, 'success'); assert.equal(transport.postCount, 1); assert.equal(transport.getCount, 3);
-    assert.equal(transport.requests[0].query, null);
+    assert.deepEqual(transport.requests[0].query, { restartOnError: false });
     assert.equal(transport.requests[1].path, '/actor-runs/run-1');
     assert.equal(transport.requests[2].path, '/actor-runs/run-1');
     assert.equal(transport.requests[3].path, '/datasets/ds-1/items');
@@ -352,6 +370,38 @@ test('durable journal retains IDs for resume after caller output failure', async
   } finally { await cleanup(dir); }
 });
 
+test('journal write failure after POST returns known Run IDs and stops before further GETs', async () => {
+  const transport = new FakeTransport([{ data: { id: 'run-journal-failure', defaultDatasetId: 'ds-journal-failure' } }]);
+  const journal = { append: async (record) => { if (record.stage === 'run_created') throw new Error('synthetic disk full'); } };
+  const result = await executeInput({ transport, actorId: 'synthetic/actor', runInput: { videoUrl: url }, sourceUrl: url,
+    journal, build: CONTROLLED_BUILD_NUMBER, requireBuild: true });
+  assert.equal(transport.postCount, 1); assert.equal(transport.getCount, 0);
+  assert.equal(result.status, 'transport_error'); assert.equal(result.runId, 'run-journal-failure');
+  assert.equal(result.datasetId, 'ds-journal-failure'); assert.equal(result.recoveryPersisted, false);
+  assert.match(result.error, /do not retry creation/);
+});
+
+test('concurrent journal appends serialize and preserve every valid record', async () => {
+  const { dir, journal } = await setup();
+  try {
+    await Promise.all(Array.from({ length: 32 }, (_, index) => journal.append({ rowId: String(index), stage: 'synthetic' })));
+    const lines = (await readFile(journal.file, 'utf8')).trim().split('\n');
+    assert.equal(lines.length, 32); assert.equal(new Set(lines.map((line) => JSON.parse(line).rowId)).size, 32);
+  } finally { await cleanup(dir); }
+});
+
+test('unique private output writer preserves an existing result file', async () => {
+  const { dir } = await setup();
+  try {
+    const file = path.join(dir, 'batch-results.jsonl'); await writeFile(file, 'older-result\n');
+    const output = await writePrivateUnique(file, 'new-result\n');
+    assert.notEqual(output, file); assert.equal(await readFile(file, 'utf8'), 'older-result\n');
+    assert.equal(await readFile(output, 'utf8'), 'new-result\n');
+    if (process.platform !== 'win32') assert.equal((await stat(output)).mode & 0o777, 0o600);
+    else assert.equal((await stat(output)).isFile(), true);
+  } finally { await cleanup(dir); }
+});
+
 test('empty Dataset reads are rechecked on the same Run before final classification', async () => {
   const { dir, journal } = await setup();
   try {
@@ -377,7 +427,8 @@ test('journal tightens existing permissions and refuses corrupted records', asyn
   try {
     await writeFile(journal.file, '{}\n', { mode: 0o644 }); await chmod(journal.file, 0o644);
     await journal.append({ runId: 'safe' });
-    assert.equal((await stat(journal.file)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal((await stat(journal.file)).mode & 0o777, 0o600);
+    else assert.equal((await stat(journal.file)).isFile(), true);
     await writeFile(journal.file, '{truncated\n', { flag: 'a' });
     await assert.rejects(journal.latest('safe'), /corrupt/);
   } finally { await cleanup(dir); }
@@ -405,7 +456,8 @@ test('private output writer restricts existing files before writing', async () =
   try {
     const file = path.join(dir, 'result.json'); await writeFile(file, 'old'); await chmod(file, 0o644);
     await writePrivate(file, 'sanitized');
-    assert.equal((await stat(file)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600);
+    else assert.equal((await stat(file)).isFile(), true);
     assert.equal(await readFile(file, 'utf8'), 'sanitized');
   } finally { await cleanup(dir); }
 });

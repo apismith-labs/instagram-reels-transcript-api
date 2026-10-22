@@ -647,3 +647,151 @@ func TestSingleURLAttributionIsConservative(t *testing.T) {
 		})
 	}
 }
+
+func TestGetTranscriptNeverReturnsPendingAttributionInSerializedResults(t *testing.T) {
+	tests := []struct {
+		name, postBody, runBody, datasetBody string
+		postStatus                           int
+		journal                              Journal
+		wantStatus                           Status
+		wantStage, wantAttribution           string
+	}{
+		{
+			name: "run_failed", postBody: `{"data":{"id":"run-1","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			runBody:    `{"data":{"id":"run-1","status":"FAILED","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			postStatus: 201, wantStatus: StatusRunFailed, wantStage: "run_terminal", wantAttribution: "unverified",
+		},
+		{
+			name: "build_mismatch", postBody: `{"data":{"id":"run-1","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			runBody:    `{"data":{"id":"run-1","status":"SUCCEEDED","defaultDatasetId":"ds-1","buildNumber":"0.0.51","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			postStatus: 201, wantStatus: StatusTransportError, wantStage: "build_mismatch", wantAttribution: "unverified",
+		},
+		{
+			name: "dataset_identity", postBody: `{"data":{"id":"run-1","defaultDatasetId":"ds-created","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			runBody:    `{"data":{"id":"run-1","status":"SUCCEEDED","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			postStatus: 201, wantStatus: StatusTransportError, wantStage: "dataset_identity", wantAttribution: "unverified",
+		},
+		{
+			name: "dataset_read", postBody: `{"data":{"id":"run-1","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			runBody:     `{"data":{"id":"run-1","status":"SUCCEEDED","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			datasetBody: `not-json`, postStatus: 201, wantStatus: StatusTransportError, wantStage: "dataset_read", wantAttribution: "unverified",
+		},
+		{
+			name: "run_poll", postBody: `{"data":{"id":"run-1","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			postStatus: 201, wantStatus: StatusTransportError, wantStage: "run_poll", wantAttribution: "unverified",
+		},
+		{
+			name: "journal_terminal", postBody: `{"data":{"id":"run-1","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			runBody:     `{"data":{"id":"run-1","status":"SUCCEEDED","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			datasetBody: `[{"url":"https://www.instagram.com/reel/synthetic123/","text":"synthetic transcript","segments":[]}]`, postStatus: 201,
+			journal: &failAfterJournal{failAt: 3}, wantStatus: StatusTransportError, wantStage: "journal_terminal", wantAttribution: "verified",
+		},
+		{
+			name: "creation_unknown", postBody: `creation response unavailable`, postStatus: 503,
+			wantStatus: StatusCreationUnknown, wantStage: "run_create_unknown", wantAttribution: "unverified",
+		},
+		{
+			name: "success", postBody: `{"data":{"id":"run-1","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			runBody:     `{"data":{"id":"run-1","status":"SUCCEEDED","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			datasetBody: `[{"url":"https://www.instagram.com/reel/synthetic123/","text":"synthetic transcript","segments":[]}]`, postStatus: 201,
+			wantStatus: StatusSuccess, wantAttribution: "verified",
+		},
+		{
+			name: "url_mismatch", postBody: `{"data":{"id":"run-1","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			runBody:     `{"data":{"id":"run-1","status":"SUCCEEDED","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			datasetBody: `[{"url":"https://www.instagram.com/reel/other/","text":"must not pass"}]`, postStatus: 201,
+			wantStatus: StatusUnknown, wantAttribution: "mismatch",
+		},
+		{
+			name: "dataset_unknown", postBody: `{"data":{"id":"run-1","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			runBody:     `{"data":{"id":"run-1","status":"SUCCEEDED","defaultDatasetId":"ds-1","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`,
+			datasetBody: `[{"url":7,"text":"must not pass"}]`, postStatus: 201,
+			wantStatus: StatusUnknown, wantAttribution: "unknown",
+		},
+	}
+
+	allowed := map[string]bool{"verified": true, "unverified": true, "mismatch": true, "unknown": true}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			posts := 0
+			transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				switch {
+				case r.Method == http.MethodPost:
+					posts++
+					return respond(tc.postStatus, tc.postBody), nil
+				case strings.HasSuffix(r.URL.Path, "/items"):
+					return respond(http.StatusOK, tc.datasetBody), nil
+				default:
+					if tc.name == "run_poll" {
+						return respond(http.StatusInternalServerError, "synthetic poll failure"), nil
+					}
+					return respond(http.StatusOK, tc.runBody), nil
+				}
+			})
+			journal := tc.journal
+			if journal == nil {
+				journal = &memoryJournal{}
+			}
+			client := newClient(t, transport, journal, nil)
+			got := client.GetTranscript(context.Background(), testURL)
+			if posts != 1 {
+				t.Fatalf("creation POST count=%d, want 1", posts)
+			}
+			if !allowed[got.AttributionVerification] || got.AttributionVerification != tc.wantAttribution {
+				t.Fatalf("attribution=%q, want terminal value %q; result=%+v", got.AttributionVerification, tc.wantAttribution, got)
+			}
+			if got.Status != tc.wantStatus || got.Stage != tc.wantStage {
+				t.Fatalf("status/stage=%s/%s, want %s/%s", got.Status, got.Stage, tc.wantStatus, tc.wantStage)
+			}
+			if got.RunID != "" && (got.RunID != "run-1" || got.DatasetID == "" || got.BuildNumber == "" || got.BuildID == "") {
+				t.Fatalf("Run/Build evidence lost: %+v", got)
+			}
+
+			stdoutJSON, err := json.Marshal(struct {
+				Result Result `json:"result"`
+			}{Result: got})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(stdoutJSON), `"attributionVerification":"pending"`) {
+				t.Fatalf("stdout serialization leaked pending: %s", stdoutJSON)
+			}
+			var stdoutValue struct {
+				Result Result `json:"result"`
+			}
+			if err := json.Unmarshal(stdoutJSON, &stdoutValue); err != nil || stdoutValue.Result.AttributionVerification != tc.wantAttribution {
+				t.Fatalf("stdout result attribution=%q err=%v", stdoutValue.Result.AttributionVerification, err)
+			}
+
+			outputPath, err := WriteResultUnique(t.TempDir(), got, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			saved, err := os.ReadFile(outputPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(saved), `"attributionVerification":"pending"`) {
+				t.Fatalf("saved JSON leaked pending: %s", saved)
+			}
+			var savedResult Result
+			if err := json.Unmarshal(saved, &savedResult); err != nil || savedResult.AttributionVerification != tc.wantAttribution {
+				t.Fatalf("saved result attribution=%q err=%v", savedResult.AttributionVerification, err)
+			}
+		})
+	}
+}
+
+func TestTerminalAttributionVerificationPreservesKnownValues(t *testing.T) {
+	for _, value := range []string{"verified", "unverified", "mismatch", "unknown"} {
+		if got := terminalAttributionVerification(value); got != value {
+			t.Errorf("terminalAttributionVerification(%q)=%q", value, got)
+		}
+	}
+	if got := terminalAttributionVerification("pending"); got != "unverified" {
+		t.Errorf("pending normalized to %q", got)
+	}
+	if got := terminalAttributionVerification("unexpected"); got != "unknown" {
+		t.Errorf("unexpected state normalized to %q", got)
+	}
+}

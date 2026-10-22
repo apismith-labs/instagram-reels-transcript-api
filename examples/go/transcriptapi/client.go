@@ -122,12 +122,17 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 }
 
 // GetTranscript creates at most one Run. It never retries the Run-creation POST.
-func (c *Client) GetTranscript(ctx context.Context, reelURL string) Result {
+func (c *Client) GetTranscript(ctx context.Context, reelURL string) (result Result) {
+	// Public results must always expose a terminal attribution state, including
+	// early exits after a Run has been created but before Dataset classification.
+	defer func() {
+		result.AttributionVerification = terminalAttributionVerification(result.AttributionVerification)
+	}()
 	validURL, err := ValidateVideoURL(reelURL)
 	if err != nil {
 		return c.failure(StatusTransportError, "input_validation", reelURL, "", "", "", c.config.BuildNumber, c.config.BuildID, "unverified", err)
 	}
-	result := Result{ActorID: c.config.ActorID, BuildNumber: c.config.BuildNumber, BuildID: c.config.BuildID,
+	result = Result{ActorID: c.config.ActorID, BuildNumber: c.config.BuildNumber, BuildID: c.config.BuildID,
 		SourceURL: validURL, BuildVerification: "pending", Segments: []Segment{}, RawItems: []any{}, AttributionVerification: "pending"}
 	entry := c.journalEntry("intent", validURL, "", "", "", c.config.BuildNumber, c.config.BuildID, "pending", capValue(c.config.MaxTotalChargeUSD))
 	if err := c.config.Journal.Append(ctx, entry); err != nil {
@@ -458,6 +463,7 @@ func (c *Client) finishFailure(ctx context.Context, result Result, sourceURL str
 }
 
 func (c *Client) finishFailureResult(ctx context.Context, result Result, sourceURL string, status Status, stage string, err error) Result {
+	result.AttributionVerification = terminalAttributionVerification(result.AttributionVerification)
 	result.Status, result.Stage, result.Error = status, stage, err.Error()
 	kind := ErrorTransport
 	if status == StatusCreationUnknown {
@@ -475,4 +481,15 @@ func (c *Client) finishFailureResult(ctx context.Context, result Result, sourceU
 		result.Cause = &Error{Kind: ErrorJournal, Stage: "journal_terminal", Err: journalErr}
 	}
 	return result
+}
+
+func terminalAttributionVerification(value string) string {
+	switch value {
+	case "verified", "unverified", "mismatch", "unknown":
+		return value
+	case "pending":
+		return "unverified"
+	default:
+		return "unknown"
+	}
 }

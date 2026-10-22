@@ -9,6 +9,20 @@ const OUTPUT_FILE = path.join(ROOT, 'sample-output', 'generated', 'nodejs-profil
 const USAGE = 'Usage: node examples/nodejs/profile.mjs <username> [username ...] [--results-limit N] [--only-posts-newer-than DATE_OR_PERIOD] [--skip-pinned-posts] [--include-shares-count]';
 const EXIT_CODES = { success: 0, actor_error: 4, empty: 5, unknown: 7, transport_error: 8, run_failed: 9, creation_unknown: 10 };
 
+export function profilePersistedResult(result, journalRecord = null, requestedUsernames = [], journalReadError = null) {
+  const { executionStatus: _transcriptExecutionStatus, ...profileResult } = result;
+  const persisted = {
+    ...profileResult,
+    runStatus: result.runStatus ?? result.runMetadata?.status ?? null,
+    buildNumber: journalRecord?.actualBuildNumber ?? result.buildNumber ?? result.runMetadata?.buildNumber ?? null,
+    buildId: journalRecord?.actualBuildId ?? result.buildId ?? result.runMetadata?.buildId ?? null,
+    buildVerification: journalRecord?.buildVerification ?? result.buildVerification ?? 'unknown',
+    usernames: result.usernames ?? requestedUsernames,
+  };
+  if (journalReadError) persisted.diagnostics = { ...(profileResult.diagnostics || {}), journalReadError };
+  return persisted;
+}
+
 function requiredOptionValue(argv, index, option) {
   const value = argv[index + 1];
   if (typeof value !== 'string' || value.length === 0 || value.startsWith('--')) {
@@ -71,10 +85,12 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     transport, actorId, runInput: parsed.runInput, journal,
     maxTotalChargeUsd: chargeCap, requireChargeCap, build, requireBuild: true, datasetPageLimit: DATASET_PAGE_LIMIT,
   });
+  let latest = null; let journalReadError = null;
+  try { latest = result.runId && typeof journal.latest === 'function' ? await journal.latest(result.runId) : null; }
+  catch (error) { journalReadError = error.message || String(error); }
   let outputFile;
-  try { outputFile = await (dependencies.writeOutput || writePrivateUnique)(dependencies.outputFile || OUTPUT_FILE, `${JSON.stringify(sanitize(result), null, 2)}\n`); }
+  try { outputFile = await (dependencies.writeOutput || writePrivateUnique)(dependencies.outputFile || OUTPUT_FILE, `${JSON.stringify(sanitize(profilePersistedResult(result, latest, parsed.runInput.usernames, journalReadError)), null, 2)}\n`); }
   catch (error) { throw new Error(`Profile output could not be saved. Preserve Run ID ${result.runId || '(unknown)'} and reconcile before retrying. ${error.message || error}`); }
-  const latest = result.runId && typeof journal.latest === 'function' ? await journal.latest(result.runId) : null;
   const status = result.status || 'unknown';
   print(JSON.stringify({ mode: 'profile', status, runStatus: result.runStatus ?? result.runMetadata?.status ?? null,
     runId: result.runId ?? null, datasetId: result.datasetId ?? null, buildNumber: latest?.actualBuildNumber ?? null,

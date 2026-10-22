@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONTROLLED_BUILD_ID, CONTROLLED_BUILD_NUMBER, profilePost, validateProfileInput } from '../../examples/nodejs/reliable-actor.mjs';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { CONTROLLED_BUILD_ID, CONTROLLED_BUILD_NUMBER, DATASET_PAGE_LIMIT, profilePost, validateProfileInput } from '../../examples/nodejs/reliable-actor.mjs';
 import { ClientCreationUnknownError, ClientConfigurationError, ClientTransportError, getProfilePosts, getTranscript, getTranscripts } from '../../examples/nodejs/client.mjs';
 import { main as profileMain, parseArgs as parseProfileArgs } from '../../examples/nodejs/profile.mjs';
 import { FakeTransport } from './offline-support.mjs';
@@ -126,6 +129,94 @@ test('Profile boolean flags and multiple usernames reach one Fake Actor Input as
   assert.deepEqual(transport.requests[0].body, { usernames: ['alice', 'bob'], skipPinnedPosts: true, includeSharesCount: true });
 });
 
+test('Profile CLI persists Profile contract with real unique private-file writes', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'profile-persisted-contract-'));
+  const baseOutput = path.join(directory, 'profile.json');
+  const sentinel = 'keep prior output';
+  await writeFile(baseOutput, sentinel, { mode: 0o600 });
+  const journalRecord = {
+    actualBuildNumber: CONTROLLED_BUILD_NUMBER, actualBuildId: CONTROLLED_BUILD_ID,
+    buildVerification: 'verified',
+  };
+  const cases = [
+    { items: [{ url: profileUrl, type: 'Image', ownerUsername: 'alice', caption: 'synthetic', timestamp: 'opaque', extra: 7 }], status: 'success', code: 0 },
+    { items: [{ url: profileUrl, errMsg: 'synthetic actor failure' }], status: 'actor_error', code: 4 },
+    { items: Array.from({ length: DATASET_PAGE_LIMIT }, (_, index) => ({ url: `https://www.instagram.com/p/synthetic-${index}/`, type: 'Image', ownerUsername: 'alice' })), status: 'unknown', code: 7 },
+  ];
+  try {
+    const savedPaths = [];
+    for (const scenario of cases) {
+      const transport = new FakeTransport(responseQueue(scenario.items));
+      const stdout = [];
+      const code = await profileMain(['alice'], {
+        env: { APIFY_TOKEN: 'synthetic-token', APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD: '1', APIFY_MAX_TOTAL_CHARGE_USD: '0.30' },
+        transport, loadEnv() {}, outputFile: baseOutput,
+        journal: { append: async () => {}, latest: async () => journalRecord },
+        print: (line) => stdout.push(line),
+      });
+      assert.equal(code, scenario.code);
+      assert.equal(transport.postCount, 1);
+      const summary = JSON.parse(stdout[0]);
+      assert.equal(summary.status, scenario.status);
+      assert.equal(summary.runStatus, 'SUCCEEDED');
+      assert.equal(summary.buildNumber, CONTROLLED_BUILD_NUMBER);
+      assert.equal(summary.buildId, CONTROLLED_BUILD_ID);
+      assert.equal(summary.buildVerification, 'verified');
+      assert.equal(summary.usernames[0], 'alice');
+      assert.deepEqual(Object.keys(summary).sort(), ['mode', 'status', 'runStatus', 'runId', 'datasetId', 'buildNumber', 'buildId', 'buildVerification', 'usernames', 'datasetComplete', 'postCount', 'posts', 'error', 'outputFile'].sort());
+      const outputPath = summary.outputFile;
+      savedPaths.push(outputPath);
+      const persisted = JSON.parse(await readFile(outputPath, 'utf8'));
+      assert.equal(persisted.status, scenario.status);
+      assert.equal(persisted.runStatus, 'SUCCEEDED');
+      assert.equal(Object.hasOwn(persisted, 'executionStatus'), false);
+      assert.equal(persisted.buildNumber, CONTROLLED_BUILD_NUMBER);
+      assert.equal(persisted.buildId, CONTROLLED_BUILD_ID);
+      assert.equal(persisted.buildVerification, 'verified');
+      assert.deepEqual(persisted.usernames, ['alice']);
+      assert.equal(persisted.runId, 'synthetic-run');
+      assert.equal(persisted.datasetId, 'synthetic-dataset');
+      assert.ok(Array.isArray(persisted.posts));
+      assert.ok(Array.isArray(persisted.rawItems));
+      assert.equal(persisted.rawItems.length, scenario.items.length);
+      assert.deepEqual(persisted.rawItems[0], scenario.items[0]);
+      assert.equal(persisted.datasetComplete, scenario.status !== 'unknown');
+      if (scenario.status === 'success') {
+        assert.equal(persisted.posts[0].status, 'success');
+        assert.equal(Object.hasOwn(persisted.rawItems[0], 'text'), false);
+        assert.equal(Object.hasOwn(persisted.rawItems[0], 'segments'), false);
+        assert.equal(persisted.counts.success, 1);
+      }
+      if (scenario.status === 'actor_error') {
+        assert.equal(persisted.posts[0].status, 'actor_error');
+        assert.match(persisted.rawItems[0].errMsg, /synthetic actor failure/);
+      }
+      if (scenario.status === 'unknown') assert.equal(persisted.datasetComplete, false);
+      if (process.platform !== 'win32') assert.equal((await stat(outputPath)).mode & 0o777, 0o600);
+    }
+    assert.equal(new Set(savedPaths).size, savedPaths.length);
+    assert.equal(await readFile(baseOutput, 'utf8'), sentinel);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('Profile CLI preserves creation-unknown and never retries its POST', async () => {
+  const transport = new FakeTransport([new Error('synthetic timeout')]);
+  const output = [];
+  const code = await profileMain(['alice'], {
+    env: { APIFY_TOKEN: 'synthetic-token' }, transport, loadEnv() {},
+    journal: { append: async () => {}, latest: async () => null },
+    writeOutput: async (_file, content) => { output.push(content); return 'synthetic-output.json'; },
+    print() {},
+  });
+  assert.equal(code, 10);
+  assert.equal(transport.postCount, 1);
+  const persisted = JSON.parse(output[0]);
+  assert.equal(persisted.status, 'creation_unknown');
+  assert.equal(Object.hasOwn(persisted, 'executionStatus'), false);
+});
+
 test('Profile Resume is always rejected with the precise unsupported message before env or POST', async () => {
   for (const argv of [['--resume'], ['--resume', 'synthetic-run']]) {
     let loadEnvCalled = false; const transport = new FakeTransport([]); const errors = [];
@@ -236,4 +327,14 @@ test('Client module import does not call fetch', async () => {
   globalThis.fetch = async () => { calls += 1; throw new Error('unexpected fetch'); };
   try { await import(`../../examples/nodejs/client.mjs?offline=${Date.now()}`); assert.equal(calls, 0); }
   finally { globalThis.fetch = originalFetch; }
+});
+
+test('Profile CLI module import does not load credentials or make a network request', async () => {
+  const originalFetch = globalThis.fetch; let calls = 0;
+  globalThis.fetch = async () => { calls += 1; throw new Error('unexpected fetch'); };
+  try {
+    const imported = await import(`../../examples/nodejs/profile.mjs?offline=${Date.now()}`);
+    assert.equal(typeof imported.main, 'function');
+    assert.equal(calls, 0);
+  } finally { globalThis.fetch = originalFetch; }
 });

@@ -7,11 +7,12 @@ this repository do today.
 | Approach | How many Actor Runs | Implemented here |
 | --- | --- | --- |
 | **CSV, one Run per URL** (`videoUrl` per row) | One Run per CSV row | Yes — Python and Node.js (Java, Go, Rust experimental) |
-| **Native bulk** (`bulkUrls`, many URLs in one Run) | One Run for many URLs | **No** — planned as V2.1 `B01` |
+| **Native bulk** (`bulkUrls`, many URLs in one Run) | One Run for many URLs | Yes — Python and Node.js |
 
-The native mode is not implemented in this repository yet. Anything in this repository that says
-"batch" refers to the first row of the table. Do not describe the CSV examples as using
-`bulkUrls`; they do not.
+CSV Batch and Native Bulk are separate modes. CSV Batch creates one Run per non-empty CSV row;
+Native Bulk sends a `bulkUrls` array in one Run. The Python and Node.js Native Bulk examples are
+documented in their respective [Python](../examples/python/README.md) and
+[Node.js](../examples/nodejs/README.md) guides.
 
 Native bulk is also not automatically cheaper or faster — it changes how many Runs you start and
 how results are mapped back to inputs, and its real performance has not been measured here.
@@ -20,7 +21,7 @@ how results are mapped back to inputs, and its real performance has not been mea
 
 ### Input format
 
-Use `sample-data/instagram-reel-urls.csv` as the starting point:
+Use `sample-data/instagram-reel-urls.csv` as a starting point and pass its path explicitly:
 
 ```csv
 videoUrl
@@ -47,11 +48,13 @@ https://www.instagram.com/p/your_post_id/
 ### Commands
 
 ```bash
-python examples/python/batch_csv.py [path/to/urls.csv]
-node examples/nodejs/batch-csv.mjs [path/to/urls.csv]
+python examples/python/batch_csv.py "sample-data/instagram-reel-urls.csv"
+node examples/nodejs/batch-csv.mjs "sample-data/instagram-reel-urls.csv"
 ```
 
-With no argument, both use `sample-data/instagram-reel-urls.csv`.
+The CSV path is required for both commands. There is no implicit sample-file fallback. Use
+`--dry-run` with either command to validate the file and display the planned number of independent
+Runs without creating them.
 
 ### Result statuses
 
@@ -71,9 +74,14 @@ Only `success` means a transcript was produced. An HTTP 200 with a non-empty `er
 
 | File | Contents |
 | --- | --- |
-| `sample-output/generated/python-batch-results.jsonl` (or `nodejs-batch-results.jsonl`) | One sanitised result object per row, including `rowId`, `sourceUrl`, `runId`, `datasetId`, `status`, `error`, and the raw items |
-| `sample-output/generated/python-batch-errors.csv` (or `nodejs-batch-errors.csv`) | Failure list with the columns `rowId,sourceUrl,runId,status,error` — business failures are included |
-| `sample-output/generated/python-run-journal.jsonl` (or `nodejs-run-journal.jsonl`) | Append-only stage journal, one JSON line per state transition |
+| Python result JSON | Unique `python-batch-results-<UTC timestamp>.json` name beside the supplied CSV by default (or the explicit `--output` path); contains each row's status and result items |
+| Node.js result JSONL | Unique `nodejs-batch-results-<UUID>.jsonl` under `sample-output/generated/`; one sanitised result object per row |
+| Node.js errors CSV | Unique `nodejs-batch-errors-<UUID>.csv` under `sample-output/generated/`; failure rows use `rowId,sourceUrl,runId,status,error` |
+| Python journal | `python-run-journal.jsonl` beside the result JSON (by default, beside the supplied CSV); append-only stage records |
+| Node.js journal | `sample-output/generated/nodejs-run-journal.jsonl`; append-only stage records |
+
+Generated result and error filenames are unique; the examples do not overwrite an earlier batch
+result. Python stores failures in the result JSON rather than writing a separate errors CSV.
 
 ### Run ID records and recovery boundaries
 
@@ -106,24 +114,12 @@ Only `success` means a transcript was produced. An HTTP 200 with a non-empty `er
   examples keep results in memory until the end of the batch and do not implement a resumable
   queue.
 
-## Native bulk (`bulkUrls`) — not implemented here
+## Native bulk (`bulkUrls`)
 
-The Actor exposes a `bulkUrls` input that processes several URLs inside a single Run. That mode
-is planned for this repository as task `B01` and **no example in this repository uses it yet**.
-
-What is known and unknown about it at this point:
-
-- It is a different input mode from the CSV flow above: one Run, many URLs, rather than many
-  Runs. Switching modes changes how you map results back to inputs.
-- Result ordering, partial-failure shape, duplicate-URL handling, and the exact input-to-output
-  mapping are **unverified**. Until `B01` lands, do not assume that output index `n` corresponds
-  to input URL `n`.
-- A per-Run URL cap on the free plan is documented by the Actor; treat published plan limits as
-  changeable and verify them against your own account before relying on them.
-- Native bulk is not claimed to be cheaper or faster here.
-
-When `B01` is implemented, this section will be replaced by a real example; until then the CSV
-flow is the only batch path in this repository.
+The Python and Node.js examples support Native Bulk: several Reel URLs are sent together in one
+Actor Run. This differs from CSV Batch, where each non-empty row creates a separate Run. See the
+language-specific guides linked above for current input limits, output mapping, and remaining
+validation boundaries. Native Bulk is not claimed to be cheaper or faster here.
 
 ## Related
 

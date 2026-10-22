@@ -1,0 +1,38 @@
+name: Go offline tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go-offline:
+    name: Go 1.22 / Ubuntu
+    runs-on: ubuntu-latest
+    env:
+      APIFY_TOKEN: ''
+      INSTAGRAM_SESSIONID: ''
+      GOPROXY: off
+      GOSUMDB: off
+      GOTOOLCHAIN: local
+    defaults:
+      run:
+        working-directory: examples/go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+      - name: Confirm checkout has no local dotenv file
+        run: test ! -e ../../.env
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Run offline Go tests
+        run: go test ./...
+      - name: Run Go vet
+        run: go vet ./...
+      - name: Build Go packages
+        run: go build ./...

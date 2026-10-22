@@ -59,12 +59,15 @@ and [CSV Batch](examples/python/README.md#run-csv-batch).
 
 - [cURL](examples/curl/README.md) — synchronous single URL.
 - [Node.js](examples/nodejs/README.md) — Single URL, Native Bulk, Profile metadata, CSV Batch, and reusable client functions.
-- [Java](examples/java/README.md), [Go](examples/go/README.md), and [Rust](examples/rust/README.md) —
-  experimental API-call references; see each guide's reliability limitations.
+- [Go](examples/go/README.md) — an offline-tested Single URL client MVP; no live acceptance is recorded.
+- [Java](examples/java/README.md) and [Rust](examples/rust/README.md) — experimental API-call
+  references; see each guide's reliability limitations.
 - [All examples](#supported-integration-examples) and [field reference](docs/input-output-fields.md).
 
-Node.js examples require Node 18+. Java, Go, and Rust have not received the same business-status
-and retry-safety work as Python and Node.js; do not treat them as production-ready clients.
+Node.js examples require Node 18+. Go now has a reusable, offline-tested Single URL MVP with
+charge-cap, Build identity, no-create-retry, and Journal safeguards, but it has not received live
+Actor validation. Java and Rust remain experimental and have not received the same business-status
+and retry-safety work as Python and Node.js.
 
 ## Example Output
 
@@ -113,18 +116,18 @@ unless you have verified them yourself.
 | Node.js | Yes | Yes | Yes* | Yes | [examples/nodejs/](examples/nodejs/) |
 | cURL | Yes | No | No | No | [examples/curl/](examples/curl/) |
 | Java | Yes | No | No | Yes | [examples/java/](examples/java/) |
-| Go | Yes | No | No | Yes | [examples/go/](examples/go/) |
+| Go | Yes* | No | No | No* | [examples/go/](examples/go/) |
 | Rust | Yes | No | No | Yes | [examples/rust/](examples/rust/) |
 
 `*` Node.js Profile is implemented and covered by offline tests; it has no recorded live Actor
 acceptance yet.
 
-**Java, Go and Rust are experimental.** They have not received the same business-status and
-retry-safety work as Python and Node.js: a record that contains a business error is still
-counted as a success in their progress counters, their failure lists omit business failures, and
-a failure mid-flow can restart the whole call and create an additional billable Run. Use them as
-API call references, not as production-ready clients. Details are in each language README and in
-[docs/error-handling-and-retries.md](docs/error-handling-and-retries.md).
+`*` Go Single URL is an offline-tested MVP and has no recorded live Actor acceptance. The former
+Go CSV Batch entry is retired and exits before reading credentials or making requests; complete
+CSV Batch support is not implemented. Go is not at Python/Node.js feature parity. Java and Rust
+remain experimental: a record containing a business error may still be counted as success, and a
+failure mid-flow can restart a call and create another billable Run. Details are in each language
+README and [docs/error-handling-and-retries.md](docs/error-handling-and-retries.md).
 
 CSV Batch is **not** the Actor's Native Bulk mode: each CSV row starts an independent Run. Python
 and Node.js also have Native Bulk examples that send `bulkUrls` in one Run. See
@@ -139,7 +142,7 @@ The Actor exposes three input modes. Choose exactly one per Run; do not mix them
 | Single transcript | `videoUrl` | Transcript result for one public video/post URL | Python, Node.js, cURL, Java, Go, Rust |
 | Native bulk transcript | `bulkUrls` | One Build `0.0.50` live acceptance passed for the three TC02 URLs; arbitrary cardinality and mixed failures remain unverified | Python, Node.js |
 | Profile posts | `usernames` | Python has one Build `0.0.50` live acceptance for one account; Node.js implementation is offline-tested only | Python, Node.js |
-| CSV Batch | CSV `videoUrl` column | One independent Run per non-empty row, with bounded client concurrency | Python, Node.js, Java, Go, Rust |
+| CSV Batch | CSV `videoUrl` column | One independent Run per non-empty row, with bounded client concurrency | Python, Node.js, Java, Rust |
 
 The Python/Node.js Single URL runners each have one recorded real acceptance on Build `0.0.50`,
 limited to the TC01 URL subset. Python Native Bulk passed one real Run on Build `0.0.50` for the

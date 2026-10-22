@@ -2,7 +2,16 @@
 
 This Go example provides an importable `transcriptapi` package and a Single URL CLI for the
 Apify Actor `apple_yang/instagram-transcripts-scraper`. It is a Go 1.22 module and is not at
-Python or Node.js feature parity. It has not received a real Actor acceptance.
+Python or Node.js feature parity.
+
+## Live verification scope
+
+Go Single URL completed one controlled Live verification using Build `0.0.50`. The Run succeeded,
+returned transcript text and 15 timestamped segments, and verified the expected Build and URL
+attribution. Apify Run metadata confirmed the requested `$0.10` charge cap and
+`restartOnError=false`; the reported usage for that run was `$0.0055`. This single test is not a
+large-scale production reliability guarantee, does not establish that every video can be
+transcribed, and the charge cap is not an absolute final-bill limit.
 
 ## Safety behavior
 
@@ -69,9 +78,24 @@ Status exit codes: `success` 0, input/configuration error 2, `actor_error` 4, `e
 The module path is `github.com/apismith-labs/instagram-reels-transcript-api/examples/go` and the
 package import path is the `/transcriptapi` subpackage. The Client accepts dependencies explicitly;
 it does not read process environment or `.env` itself.
-This nested module does not claim compatibility with the repository's root-level release tags; do
-not assume `go get ...@v0.7.0` works. A module-prefixed Go tag is needed before versioned install
-instructions can be documented.
+
+This is a nested Go module. Before its v0.8.0 module tag is published and verified from an external
+consumer, use a local `replace` directive to test a checkout. For example, if the consumer project
+and repository checkout are sibling directories:
+
+```go
+replace github.com/apismith-labs/instagram-reels-transcript-api/examples/go => ../instagram-reels-transcript-api/examples/go
+```
+
+The planned Go module tag is `examples/go/v0.8.0`; the root GitHub Release tag is `v0.8.0`. They
+must point to the same final release commit. The versioned installation command below is a
+post-publication example only and has not yet been verified with an external `go get`:
+
+```sh
+go get github.com/apismith-labs/instagram-reels-transcript-api/examples/go@v0.8.0
+```
+
+Do not treat the root tag by itself as the nested module's version tag.
 
 ```go
 package main

@@ -59,15 +59,19 @@ and [CSV Batch](examples/python/README.md#run-csv-batch).
 
 - [cURL](examples/curl/README.md) — synchronous single URL.
 - [Node.js](examples/nodejs/README.md) — Single URL, Native Bulk, Profile metadata, CSV Batch, and reusable client functions.
-- [Go](examples/go/README.md) — an offline-tested Single URL client MVP; no live acceptance is recorded.
+- [Go](examples/go/README.md) — a reusable Go 1.22+ Single URL client and CLI; one controlled Live verification is recorded.
 - [Java](examples/java/README.md) and [Rust](examples/rust/README.md) — experimental API-call
   references; see each guide's reliability limitations.
 - [All examples](#supported-integration-examples) and [field reference](docs/input-output-fields.md).
 
-Node.js examples require Node 18+. Go now has a reusable, offline-tested Single URL MVP with
-charge-cap, Build identity, no-create-retry, and Journal safeguards, but it has not received live
-Actor validation. Java and Rust remain experimental and have not received the same business-status
-and retry-safety work as Python and Node.js.
+Node.js examples require Node 18+. Go provides a reusable, offline-tested Single URL MVP with
+charge-cap, Build identity, no-create-retry, and Journal safeguards. One controlled Go Single URL
+Live verification using Build 0.0.50 succeeded, returned transcript text and 15 timestamped
+segments, and verified the expected Build and URL attribution. The Apify Run metadata confirmed
+the requested $0.10 charge cap and `restartOnError=false`. This single test is not a broad
+production reliability guarantee, and the cap does not guarantee the final account bill. Java and
+Rust remain experimental and have not received the same business-status and retry-safety work as
+Python and Node.js.
 
 ## Example Output
 
@@ -122,12 +126,13 @@ unless you have verified them yourself.
 `*` Node.js Profile is implemented and covered by offline tests; it has no recorded live Actor
 acceptance yet.
 
-`*` Go Single URL is an offline-tested MVP and has no recorded live Actor acceptance. The former
-Go CSV Batch entry is retired and exits before reading credentials or making requests; complete
-CSV Batch support is not implemented. Go is not at Python/Node.js feature parity. Java and Rust
-remain experimental: a record containing a business error may still be counted as success, and a
-failure mid-flow can restart a call and create another billable Run. Details are in each language
-README and [docs/error-handling-and-retries.md](docs/error-handling-and-retries.md).
+`*` Go Single URL has one controlled Live acceptance on Build 0.0.50; this does not establish
+success for all videos or large-scale reliability. The former Go CSV Batch entry is retired and
+exits before reading credentials or making requests; CSV Batch has not been rebuilt. Go Native
+Bulk, Profile, and Resume are not implemented, and Go is not at Python/Node.js feature parity. Java
+and Rust remain experimental: a record containing a business error may still be counted as success,
+and a failure mid-flow can restart a call and create another billable Run. Details are in each
+language README and [docs/error-handling-and-retries.md](docs/error-handling-and-retries.md).
 
 CSV Batch is **not** the Actor's Native Bulk mode: each CSV row starts an independent Run. Python
 and Node.js also have Native Bulk examples that send `bulkUrls` in one Run. See

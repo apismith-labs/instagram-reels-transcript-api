@@ -58,7 +58,7 @@ and [CSV Batch](examples/python/README.md#run-csv-batch).
 ## Other language examples
 
 - [cURL](examples/curl/README.md) — synchronous single URL.
-- [Node.js](examples/nodejs/README.md) — single URL, Native Bulk, and CSV Batch.
+- [Node.js](examples/nodejs/README.md) — Single URL, Native Bulk, Profile metadata, CSV Batch, and reusable client functions.
 - [Java](examples/java/README.md), [Go](examples/go/README.md), and [Rust](examples/rust/README.md) —
   experimental API-call references; see each guide's reliability limitations.
 - [All examples](#supported-integration-examples) and [field reference](docs/input-output-fields.md).
@@ -110,11 +110,14 @@ unless you have verified them yourself.
 | Language | Single URL | Native Bulk | Profile | CSV Batch | Directory |
 | --- | --- | --- | --- | --- | --- |
 | Python | Yes | Yes | Yes | Yes | [examples/python/](examples/python/) |
-| Node.js | Yes | Yes | No | Yes | [examples/nodejs/](examples/nodejs/) |
+| Node.js | Yes | Yes | Yes* | Yes | [examples/nodejs/](examples/nodejs/) |
 | cURL | Yes | No | No | No | [examples/curl/](examples/curl/) |
 | Java | Yes | No | No | Yes | [examples/java/](examples/java/) |
 | Go | Yes | No | No | Yes | [examples/go/](examples/go/) |
 | Rust | Yes | No | No | Yes | [examples/rust/](examples/rust/) |
+
+`*` Node.js Profile is implemented and covered by offline tests; it has no recorded live Actor
+acceptance yet.
 
 **Java, Go and Rust are experimental.** They have not received the same business-status and
 retry-safety work as Python and Node.js: a record that contains a business error is still
@@ -135,7 +138,7 @@ The Actor exposes three input modes. Choose exactly one per Run; do not mix them
 | --- | --- | --- | --- |
 | Single transcript | `videoUrl` | Transcript result for one public video/post URL | Python, Node.js, cURL, Java, Go, Rust |
 | Native bulk transcript | `bulkUrls` | One Build `0.0.50` live acceptance passed for the three TC02 URLs; arbitrary cardinality and mixed failures remain unverified | Python, Node.js |
-| Profile posts | `usernames` | One Build `0.0.50` live acceptance retrieved one post for one account; multi-account behavior remains unverified | Python |
+| Profile posts | `usernames` | Python has one Build `0.0.50` live acceptance for one account; Node.js implementation is offline-tested only | Python, Node.js |
 | CSV Batch | CSV `videoUrl` column | One independent Run per non-empty row, with bounded client concurrency | Python, Node.js, Java, Go, Rust |
 
 The Python/Node.js Single URL runners each have one recorded real acceptance on Build `0.0.50`,
@@ -144,7 +147,8 @@ three fixed TC02 URLs; this does not validate arbitrary batch sizes, general pag
 success/failure results. Python Profile passed one real Run on Build `0.0.50` for `lovepegz` with
 `resultsLimit=1`, returning one post metadata item; the full TC03 input, multi-account attribution,
 date filtering, and pinned-post behavior remain unverified. Node.js Native Bulk also has a recorded
-successful live Run. Python CSV Batch remains offline-only: `--dry-run` is validated, but real
+successful live Run. Node.js Profile is implemented but has not had a real Actor acceptance.
+Python CSV Batch remains offline-only: `--dry-run` is validated, but real
 per-row CSV Runs have not been tested. Node.js CSV Batch has no live validation recorded. These
 narrow results do not establish compatibility for other inputs or Builds.
 

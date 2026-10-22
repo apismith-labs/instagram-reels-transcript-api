@@ -8,6 +8,7 @@ export const MINIMUM_PASSES = 73;
 export const TEST_FILES = [
   'tests/node/cli-safety.test.mjs',
   'tests/node/native-bulk.test.mjs',
+  'tests/node/profile-client.test.mjs',
   'tests/node/offline-contract.test.mjs',
   'tests/node/reliable-actor.test.mjs',
   'tests/node/ci-test-count.test.mjs',

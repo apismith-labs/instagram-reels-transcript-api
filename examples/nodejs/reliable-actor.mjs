@@ -39,6 +39,88 @@ export function validateBulkRunInput(input) {
   }
   return { ...structuredClone(input), bulkUrls: urls };
 }
+const PROFILE_USERNAME = /^[A-Za-z0-9._]+$/;
+const PROFILE_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const PROFILE_RELATIVE = /^(\d+)\s*(day|week|month|year)s?$/i;
+function validateProfileDate(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string' || !value || value.trim() !== value) throw new TypeError('onlyPostsNewerThan must be a non-empty supported date or relative period');
+  const calendar = PROFILE_DATE.exec(value);
+  if (calendar) {
+    const year = Number(calendar[1]); const month = Number(calendar[2]); const day = Number(calendar[3]);
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (month < 1 || month > 12 || day < 1 || day > days[month - 1]) throw new TypeError('onlyPostsNewerThan must be a real YYYY-MM-DD calendar date');
+    return value;
+  }
+  const relative = PROFILE_RELATIVE.exec(value);
+  if (relative && Number(relative[1]) > 0) return value;
+  throw new TypeError('onlyPostsNewerThan accepts YYYY-MM-DD or a relative day/week/month/year value; ISO timestamps remain unverified');
+}
+export function validateProfileInput(usernames, options = {}) {
+  if (typeof usernames === 'string') usernames = [usernames];
+  if (!Array.isArray(usernames) || usernames.length === 0) throw new TypeError('At least one explicit username is required');
+  const normalized = []; const seen = new Set();
+  for (const [index, username] of usernames.entries()) {
+    if (typeof username !== 'string' || !username || username.trim() !== username || !PROFILE_USERNAME.test(username) || !/[A-Za-z0-9]/.test(username) || username.startsWith('.') || username.endsWith('.') || username.includes('..')) {
+      throw new TypeError(`usernames[${index}] must be an Instagram-style name without @, whitespace, or invalid dot placement`);
+    }
+    const identity = username.toLocaleLowerCase('en-US');
+    if (seen.has(identity)) throw new TypeError(`usernames[${index}] duplicates or ambiguously aliases another username`);
+    seen.add(identity); normalized.push(username);
+  }
+  if (!options || typeof options !== 'object' || Array.isArray(options)) throw new TypeError('Profile options must be an object');
+  const allowed = new Set(['resultsLimit', 'onlyPostsNewerThan', 'skipPinnedPosts', 'includeSharesCount']);
+  const unexpected = Object.keys(options).find((key) => !allowed.has(key));
+  if (unexpected) throw new TypeError(`Unsupported Profile option: ${unexpected}`);
+  if (Object.hasOwn(options, 'resultsLimit') && (!Number.isInteger(options.resultsLimit) || options.resultsLimit <= 0)) throw new TypeError('resultsLimit must be a positive integer');
+  if (Object.hasOwn(options, 'skipPinnedPosts') && typeof options.skipPinnedPosts !== 'boolean') throw new TypeError('skipPinnedPosts must be a boolean');
+  if (Object.hasOwn(options, 'includeSharesCount') && typeof options.includeSharesCount !== 'boolean') throw new TypeError('includeSharesCount must be a boolean');
+  const input = { usernames: normalized };
+  if (Object.hasOwn(options, 'resultsLimit')) input.resultsLimit = options.resultsLimit;
+  const date = validateProfileDate(options.onlyPostsNewerThan);
+  if (date != null) input.onlyPostsNewerThan = date;
+  for (const key of ['skipPinnedPosts', 'includeSharesCount']) if (Object.hasOwn(options, key)) input[key] = options[key];
+  return input;
+}
+export function profilePost(item, requestedUsernames) {
+  const usernames = Array.isArray(requestedUsernames) ? requestedUsernames : [requestedUsernames];
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return { url: null, type: null, ownerUsername: null, caption: null, timestamp: null, videoUrl: null, videoDuration: null, status: 'unknown', raw: item, error: 'Dataset item is not an object' };
+  const stringField = (key) => typeof item[key] === 'string' ? item[key] : null;
+  const url = item.url;
+  const validUrl = typeof url === 'string' && /^https:\/\/(?:www\.)?instagram\.com\/(?:p|reel|reels)\/[A-Za-z0-9_-]+\/?$/.test(url);
+  const ownerUsername = typeof item.ownerUsername === 'string' && item.ownerUsername.trim() ? item.ownerUsername : null;
+  const type = typeof item.type === 'string' && item.type.trim() ? item.type : null;
+  const actorError = item.errMsg != null && String(item.errMsg).trim() ? safeError(item.errMsg) : null;
+  const hasMetadata = Boolean(type || ownerUsername || (typeof item.caption === 'string' && item.caption.trim()) ||
+    ['id', 'pk', 'img'].some((key) => typeof item[key] === 'string' && item[key].trim()) ||
+    (item.timestamp !== undefined && item.timestamp !== null && item.timestamp !== ''));
+  const recognizable = validUrl && (Boolean(type) || hasMetadata);
+  let ownershipKnown = true;
+  if (usernames.length > 1) ownershipKnown = ownerUsername !== null && usernames.includes(ownerUsername);
+  else if (ownerUsername !== null && ownerUsername !== usernames[0]) ownershipKnown = false;
+  const status = actorError ? 'actor_error' : recognizable && ownershipKnown ? 'success' : 'unknown';
+  const error = actorError || (status === 'success' ? null : recognizable ? 'Post owner is missing or does not match a requested account' : 'Dataset item lacks recognizable Profile post metadata');
+  const duration = typeof item.videoDuration === 'number' && Number.isFinite(item.videoDuration) ? item.videoDuration : null;
+  return { url: validUrl ? url : null, type, ownerUsername, caption: stringField('caption'), timestamp: item.timestamp ?? null,
+    videoUrl: stringField('videoUrl'), videoDuration: duration, status, raw: item, error };
+}
+export function aggregateProfile(posts, rawItems, datasetComplete, usernames) {
+  const safePosts = Array.isArray(posts) ? posts : []; const raw = Array.isArray(rawItems) ? rawItems : [];
+  const complete = datasetComplete === true;
+  const counts = { success: safePosts.filter((post) => post.status === 'success').length,
+    actor_error: safePosts.filter((post) => post.status === 'actor_error').length,
+    unknown: safePosts.filter((post) => post.status === 'unknown').length };
+  let status;
+  if (counts.actor_error > 0) status = 'actor_error';
+  else if (!complete) status = 'unknown';
+  else if (raw.length === 0) status = 'empty';
+  else if (safePosts.length === raw.length && counts.unknown === 0 && counts.success === raw.length) status = 'success';
+  else status = 'unknown';
+  return { status, posts: safePosts, usernames: Array.isArray(usernames) ? [...usernames] : [usernames], counts,
+    datasetComplete: complete, rawItems: raw,
+    error: status === 'actor_error' ? 'One or more Profile items contain a non-empty errMsg' : status === 'unknown' ? 'Profile Dataset is incomplete or contains unrecognized/unattributed items' : null };
+}
 function bulkUrlKey(value) {
   if (typeof value !== 'string') return null;
   try {
@@ -203,11 +285,11 @@ export function classifyItems(items) {
   return ['unknown', 'Transcript text has an unsupported type'];
 }
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
-async function getWithRetry(transport, endpoint, deadline, maxAttempts, sleepFn, query = null) {
+async function getWithRetry(transport, endpoint, deadline, maxAttempts, sleepFn, query = null, requestTimeoutMs = 30_000) {
   let last;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (Date.now() >= deadline) throw new ApiError('Overall run deadline exceeded');
-    try { return await transport.request('GET', endpoint, undefined, Math.max(1, Math.min(30_000, deadline - Date.now())), query); } catch (error) {
+    try { return await transport.request('GET', endpoint, undefined, Math.max(1, Math.min(requestTimeoutMs, deadline - Date.now())), query); } catch (error) {
       last = error;
       const retryable = error.status === 429 || (error.status >= 500 && error.status < 600) || error.status == null;
       const delay = error.retryAfter ?? Math.min(2 ** attempt, 8);
@@ -250,7 +332,7 @@ export class RunMetadataArchive {
 export async function archiveRunMetadataBestEffort(archive, record, warn = () => {}) {
   try { await archive.append(record); return true; } catch (error) { warn(`Run metadata archive failed: ${safeError(error)}`); return false; }
 }
-export async function executeInput({ transport, actorId, runInput, sourceUrl, inputContext = null, datasetPageLimit = null, journal, deadlineMs = 900_000, maxAttempts = 4, sleepFn = sleep, runId: resumeRunId = null, datasetId: resumeDatasetId = null, rowId: inputRowId = null, maxTotalChargeUsd = null, requireChargeCap = false, build = null, requireBuild = false, resumeBuildRecord = null }) {
+export async function executeInput({ transport, actorId, runInput, sourceUrl, inputContext = null, datasetPageLimit = null, journal, deadlineMs = 900_000, requestTimeoutMs = 30_000, maxAttempts = 4, sleepFn = sleep, runId: resumeRunId = null, datasetId: resumeDatasetId = null, rowId: inputRowId = null, maxTotalChargeUsd = null, requireChargeCap = false, build = null, requireBuild = false, resumeBuildRecord = null }) {
   const deadline = Date.now() + deadlineMs;
   const rowId = inputRowId || randomUUID();
   const record = { rowId, sourceUrl, actorId, runId: resumeRunId, datasetId: resumeDatasetId, ...(inputContext ? { inputContext } : {}), stage: 'start', status: 'unknown', updatedAt: new Date().toISOString() };
@@ -295,7 +377,7 @@ export async function executeInput({ transport, actorId, runInput, sourceUrl, in
     let created;
     if (Date.now() >= deadline) { const persisted = await save('create_failed', 'transport_error', 'Overall run deadline exceeded before POST'); return { rowId, sourceUrl, status: 'transport_error', runId: null, error: 'Overall run deadline exceeded before POST', ...(persisted ? {} : { recoveryPersisted: false }) }; }
     const runOptions = { restartOnError: false, ...(chargeCap == null ? {} : { maxTotalChargeUsd: chargeCap }), ...(requestedBuild ? { build: requestedBuild } : {}) };
-    try { created = await transport.request('POST', endpoint, runInput, Math.max(1, Math.min(30_000, deadline - Date.now())), runOptions); }
+    try { created = await transport.request('POST', endpoint, runInput, Math.max(1, Math.min(requestTimeoutMs, deadline - Date.now())), runOptions); }
     catch (error) {
       let status = error.ambiguous || error.status == null ? 'creation_unknown' : 'transport_error';
       if (error.status === 429) { status = 'creation_unknown'; error = new ApiError('HTTP 429 on Run creation; acceptance semantics are unverified; POST was not retried', { status: 429 }); }
@@ -331,7 +413,7 @@ export async function executeInput({ transport, actorId, runInput, sourceUrl, in
   try {
     for (;;) {
       if (Date.now() >= deadline) throw new ApiError('Overall run deadline exceeded');
-      const raw = await getWithRetry(transport, `/actor-runs/${runId}`, deadline, maxAttempts, sleepFn);
+      const raw = await getWithRetry(transport, `/actor-runs/${runId}`, deadline, maxAttempts, sleepFn, null, requestTimeoutMs);
       const run = raw.data || raw;
       finalRun = run;
       if (run.defaultDatasetId) {
@@ -371,13 +453,13 @@ export async function executeInput({ transport, actorId, runInput, sourceUrl, in
     }
     if (!datasetId) { if (!(await save('recoverable', 'transport_error', 'Run succeeded without a dataset ID'))) return persistenceFailure(); return { rowId, sourceUrl, runId, status: 'transport_error', error: 'Run succeeded without a dataset ID' }; }
     const datasetQuery = datasetPageLimit ? { limit: datasetPageLimit, offset: 0 } : null;
-    let items = await getWithRetry(transport, `/datasets/${datasetId}/items`, deadline, maxAttempts, sleepFn, datasetQuery);
+    let items = await getWithRetry(transport, `/datasets/${datasetId}/items`, deadline, maxAttempts, sleepFn, datasetQuery, requestTimeoutMs);
     // Dataset visibility can lag terminal Run status; confirm empty reads on the same Dataset.
     for (let emptyAttempt = 0; emptyAttempt < 2; emptyAttempt += 1) {
       const waitMs = (emptyAttempt + 1) * 1_000;
       if (!Array.isArray(items) || items.length > 0 || Date.now() + waitMs >= deadline) break;
       await sleepFn(waitMs);
-      items = await getWithRetry(transport, `/datasets/${datasetId}/items`, deadline, maxAttempts, sleepFn, datasetQuery);
+      items = await getWithRetry(transport, `/datasets/${datasetId}/items`, deadline, maxAttempts, sleepFn, datasetQuery, requestTimeoutMs);
     }
     const [status, message] = classifyItems(items); if (!(await save('complete', status, message || null))) return persistenceFailure();
     return { rowId, sourceUrl, runId, datasetId, status, error: message, rawItems: items,
@@ -398,7 +480,7 @@ export async function loadBulkResumeRecord(journal, runId, actorId, bulkInput, e
   const input = validateBulkRunInput(bulkInput);
   const prior = await loadResumeRecord(journal, runId, actorId, expectedBuild);
   if (prior.inputContext?.mode !== 'native_bulk' || JSON.stringify(prior.inputContext.input) !== JSON.stringify(input)) {
-    throw new Error('Run journal Native Bulk input does not match the current fixture; refusing resume');
+    throw new Error('Run journal Native Bulk input does not match the explicitly supplied input; refusing resume');
   }
   return prior;
 }
@@ -412,6 +494,18 @@ export async function executeBulkInput({ transport, actorId, runInput, journal, 
   }
   const attribution = attributeBulkItems(input.bulkUrls, base.rawItems, { datasetComplete: base.datasetComplete === true });
   return { ...base, executionStatus: base.status, status: attribution.bulkStatus, ...attribution };
+}
+export async function executeProfileInput({ transport, actorId, runInput, journal, datasetPageLimit = DATASET_PAGE_LIMIT, ...options }) {
+  const input = validateProfileInput(runInput?.usernames, Object.fromEntries(Object.entries(runInput || {}).filter(([key]) => key !== 'usernames')));
+  const sourceUrl = `profile:${input.usernames.join(',')}`;
+  const base = await executeInput({ transport, actorId, runInput: input, sourceUrl,
+    inputContext: { mode: 'profile', input }, datasetPageLimit, journal, ...options });
+  const rawItems = Array.isArray(base.rawItems) ? base.rawItems : [];
+  const posts = rawItems.map((item) => profilePost(item, input.usernames));
+  const aggregate = aggregateProfile(posts, rawItems, base.datasetComplete === true, input.usernames);
+  const status = ['run_failed', 'transport_error', 'creation_unknown'].includes(base.status) ? base.status : aggregate.status;
+  const error = ['run_failed', 'transport_error', 'creation_unknown'].includes(base.status) ? base.error : aggregate.error;
+  return { ...base, ...aggregate, executionStatus: base.status, status, error: error || null };
 }
 export function summarize(results) {
   const counts = Object.fromEntries(STATUSES.map((s) => [s, 0]));

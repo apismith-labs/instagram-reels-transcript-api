@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CONTROLLED_BUILD_NUMBER, DATASET_PAGE_LIMIT, EXIT_CODES, RestTransport, RunJournal, buildRunInput, executeInput, loadResumeRecord, sanitize, validateVideoUrl, writePrivate } from './reliable-actor.mjs';
+import { CONTROLLED_BUILD_NUMBER, DATASET_PAGE_LIMIT, EXIT_CODES, RestTransport, RunJournal, buildRunInput, executeInput, loadResumeRecord, sanitize, validateVideoUrl, writePrivateUnique } from './reliable-actor.mjs';
 
 const DEFAULT_ACTOR_ID = 'apple_yang/instagram-transcripts-scraper';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -32,12 +32,13 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     build: env.APIFY_BUILD || CONTROLLED_BUILD_NUMBER, requireBuild: true, resumeBuildRecord: prior,
     datasetPageLimit: DATASET_PAGE_LIMIT,
   });
-  try { await (dependencies.writeOutput || writePrivate)(dependencies.outputFile || OUTPUT_FILE, `${JSON.stringify(sanitize(result.rawItems ?? result), null, 2)}\n`); }
+  let outputFile;
+  try { outputFile = await (dependencies.writeOutput || writePrivateUnique)(dependencies.outputFile || OUTPUT_FILE, `${JSON.stringify(sanitize(result.rawItems ?? result), null, 2)}\n`); }
   catch (error) {
     print(JSON.stringify({ rowId: result.rowId ?? null, runId: result.runId ?? null, datasetId: result.datasetId ?? null, status: result.status, outputError: String(error?.message || error).slice(0, 200) }));
     throw new Error(`Result output could not be saved. Preserve Run ID ${result.runId || '(unknown)'} and do not repeat the creation request.`);
   }
-  print(JSON.stringify(Object.fromEntries(['rowId', 'sourceUrl', 'runId', 'datasetId', 'status', 'error', 'datasetComplete'].map((key) => [key, result[key] ?? null]))));
+  print(JSON.stringify({ ...Object.fromEntries(['rowId', 'sourceUrl', 'runId', 'datasetId', 'status', 'error', 'datasetComplete'].map((key) => [key, result[key] ?? null])), outputFile }));
   return EXIT_CODES[result.status] ?? EXIT_CODES.unknown;
 }
 

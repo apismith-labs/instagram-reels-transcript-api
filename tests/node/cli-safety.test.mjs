@@ -12,11 +12,13 @@ const cleanup = (dir) => rm(dir, { recursive: true, force: true });
 const reel = 'https://www.instagram.com/reels/synthetic-cli-reel/';
 
 test('all Node CLIs import safely without reading Token, network, or creating files', async () => {
-  const paths = ['single-url.mjs', 'native-bulk.mjs', 'batch-csv.mjs'];
+  const paths = ['single-url.mjs', 'native-bulk.mjs', 'batch-csv.mjs', 'profile.mjs'];
   for (const file of paths) {
     const module = await import(pathToFileURL(path.join(repoRoot, 'examples/nodejs', file)));
     assert.equal(typeof module.main, 'function');
   }
+  const client = await import(pathToFileURL(path.join(repoRoot, 'examples/nodejs/client.mjs')));
+  for (const name of ['getTranscript', 'getTranscripts', 'getProfilePosts']) assert.equal(typeof client[name], 'function');
 });
 
 test('single URL requires explicit URL and never falls back to INSTAGRAM_REEL_URL', async () => {
@@ -65,6 +67,26 @@ test('single URL defaults to the approved Build and sends restartOnError=false i
   } finally { await cleanup(dir); }
 });
 
+test('single URL CLI creates a unique output path and preserves a prior result', async () => {
+  const { main } = await import('../../examples/nodejs/single-url.mjs');
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'node-cli-single-unique-'));
+  try {
+    const outputBase = path.join(dir, 'result.json'); await writeFile(outputBase, 'previous result');
+    const transport = new FakeTransport([
+      { data: { id: 'single-unique-run', defaultDatasetId: 'single-unique-dataset', buildNumber: CONTROLLED_BUILD_NUMBER, buildId: CONTROLLED_BUILD_ID } },
+      { data: { status: 'SUCCEEDED', defaultDatasetId: 'single-unique-dataset', buildNumber: CONTROLLED_BUILD_NUMBER, buildId: CONTROLLED_BUILD_ID } },
+      [{ text: 'synthetic transcript' }],
+    ]);
+    const lines = [];
+    await main([reel], { env: { APIFY_TOKEN: 'synthetic-token' }, loadEnv() {}, transport,
+      journal: new RunJournal(path.join(dir, 'runs.jsonl')), outputFile: outputBase, print: (line) => lines.push(line) });
+    const summary = JSON.parse(lines[0]);
+    assert.notEqual(summary.outputFile, outputBase);
+    assert.equal(await readFile(outputBase, 'utf8'), 'previous result');
+    assert.match(await readFile(summary.outputFile, 'utf8'), /synthetic transcript/);
+  } finally { await cleanup(dir); }
+});
+
 test('single URL Resume requires no URL and reuses the journal Run without POST', async () => {
   const { main } = await import('../../examples/nodejs/single-url.mjs');
   const dir = await mkdtemp(path.join(os.tmpdir(), 'node-cli-resume-'));
@@ -84,7 +106,7 @@ test('single URL Resume requires no URL and reuses the journal Run without POST'
   } finally { await cleanup(dir); }
 });
 
-test('Native Bulk CLI defaults to the approved Build and sends one safe creation request', async () => {
+test('Native Bulk CLI requires explicit URLs and sends all of them in one safe creation request', async () => {
   const { main } = await import('../../examples/nodejs/native-bulk.mjs');
   const dir = await mkdtemp(path.join(os.tmpdir(), 'node-cli-bulk-'));
   try {
@@ -97,8 +119,8 @@ test('Native Bulk CLI defaults to the approved Build and sends one safe creation
       items,
     ]);
     const lines = [];
-    const code = await main([], { env: { APIFY_TOKEN: 'synthetic-token' }, loadEnv() {}, transport,
-      fixtureFile, journal: new RunJournal(path.join(dir, 'runs.jsonl')), outputFile: path.join(dir, 'bulk.json'),
+    const code = await main(input.bulkUrls, { env: { APIFY_TOKEN: 'synthetic-token' }, loadEnv() {}, transport,
+      journal: new RunJournal(path.join(dir, 'runs.jsonl')), outputFile: path.join(dir, 'bulk.json'),
       metadataArchive: { append: async () => {} }, print: (line) => lines.push(line) });
     assert.equal(code, 0); assert.equal(transport.postCount, 1);
     assert.deepEqual(transport.requests[0].query, { restartOnError: false, build: CONTROLLED_BUILD_NUMBER });
@@ -192,7 +214,55 @@ test('CSV output write failure reports completed Run IDs instead of hiding them'
 });
 
 test('Native Bulk main can be imported and help returns without token or POST', async () => {
-  const { main } = await import('../../examples/nodejs/native-bulk.mjs'); const transport = new FakeTransport([]); const lines = [];
+  const { main, parseArgs } = await import('../../examples/nodejs/native-bulk.mjs'); const transport = new FakeTransport([]); const lines = [];
   assert.equal(await main(['--help'], { env: {}, transport, print: (line) => lines.push(line) }), 0);
   assert.match(lines[0], /Usage:/); assert.equal(transport.postCount, 0);
+  await assert.rejects(main([], { env: { APIFY_TOKEN: 'synthetic-token' }, loadEnv() {}, transport }), /Usage:/);
+  assert.equal(transport.postCount, 0);
+  assert.deepEqual(parseArgs(['https://www.instagram.com/reel/one/', '--results-limit', '12', '--include-shares-count', 'false']).runInput,
+    { bulkUrls: ['https://www.instagram.com/reel/one/'], resultsLimit: 12, skipPinnedPosts: false, includeSharesCount: false });
+  assert.throws(() => parseArgs(['https://www.instagram.com/reel/one/', 'https://www.instagram.com/reel/one/']), /duplicates/);
+});
+
+test('Native Bulk Resume verifies exact input identity and never creates another Run', async () => {
+  const { main } = await import('../../examples/nodejs/native-bulk.mjs');
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'node-cli-bulk-resume-'));
+  try {
+    const urls = ['https://www.instagram.com/reel/one/'];
+    const runInput = { bulkUrls: urls, resultsLimit: 12, skipPinnedPosts: false, includeSharesCount: false };
+    const journal = new RunJournal(path.join(dir, 'runs.jsonl'));
+    await journal.append({ rowId: 'bulk-resume-row', sourceUrl: 'native_bulk', actorId: 'apple_yang/instagram-transcripts-scraper',
+      runId: 'bulk-resume-run', datasetId: 'bulk-resume-dataset', expectedBuildNumber: CONTROLLED_BUILD_NUMBER,
+      actualBuildNumber: CONTROLLED_BUILD_NUMBER, actualBuildId: CONTROLLED_BUILD_ID, buildVerification: 'verified',
+      inputContext: { mode: 'native_bulk', input: runInput }, stage: 'run_created', status: 'unknown' });
+    const transport = new FakeTransport([
+      { data: { id: 'bulk-resume-run', status: 'SUCCEEDED', defaultDatasetId: 'bulk-resume-dataset',
+        buildNumber: CONTROLLED_BUILD_NUMBER, buildId: CONTROLLED_BUILD_ID } },
+      [{ url: urls[0], text: 'Synthetic transcript.' }],
+    ]);
+    const code = await main(['--resume', 'bulk-resume-run', ...urls], { env: { APIFY_TOKEN: 'synthetic-token' }, loadEnv() {},
+      transport, journal, outputFile: path.join(dir, 'bulk.json'), metadataArchive: { append: async () => {} }, print() {} });
+    assert.equal(code, 0); assert.equal(transport.postCount, 0); assert.equal(transport.getCount, 2);
+    await assert.rejects(main(['--resume', 'bulk-resume-run', 'https://www.instagram.com/reel/different/'], {
+      env: { APIFY_TOKEN: 'synthetic-token' }, loadEnv() {}, transport: new FakeTransport([]), journal,
+    }), /does not match/);
+  } finally { await cleanup(dir); }
+});
+
+test('Profile CLI sends explicit Profile input and reports metadata without requiring transcript', async () => {
+  const { main } = await import('../../examples/nodejs/profile.mjs');
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'node-cli-profile-'));
+  try {
+    const transport = new FakeTransport([
+      { data: { id: 'profile-run', defaultDatasetId: 'profile-dataset', buildNumber: CONTROLLED_BUILD_NUMBER, buildId: CONTROLLED_BUILD_ID } },
+      { data: { status: 'SUCCEEDED', defaultDatasetId: 'profile-dataset', buildNumber: CONTROLLED_BUILD_NUMBER, buildId: CONTROLLED_BUILD_ID } },
+      [{ url: 'https://www.instagram.com/p/synthetic-profile-post/', type: 'Image' }],
+    ]);
+    const lines = [];
+    const code = await main(['alice', '--results-limit', '1'], { env: { APIFY_TOKEN: 'synthetic-token' }, loadEnv() {}, transport,
+      journal: new RunJournal(path.join(dir, 'runs.jsonl')), writeOutput: async () => path.join(dir, 'profile.json'), print: (line) => lines.push(line) });
+    assert.equal(code, 0); assert.equal(transport.postCount, 1);
+    assert.deepEqual(transport.requests[0].body, { usernames: ['alice'], resultsLimit: 1 });
+    assert.equal(JSON.parse(lines[0]).posts[0].type, 'Image');
+  } finally { await cleanup(dir); }
 });

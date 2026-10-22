@@ -1,0 +1,159 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { CONTROLLED_BUILD_ID, CONTROLLED_BUILD_NUMBER, profilePost, validateProfileInput } from '../../examples/nodejs/reliable-actor.mjs';
+import { ClientCreationUnknownError, ClientConfigurationError, ClientTransportError, getProfilePosts, getTranscript, getTranscripts } from '../../examples/nodejs/client.mjs';
+import { main as profileMain, parseArgs as parseProfileArgs } from '../../examples/nodejs/profile.mjs';
+import { FakeTransport } from './offline-support.mjs';
+
+const actorId = 'apple_yang/instagram-transcripts-scraper';
+const profileUrl = 'https://www.instagram.com/p/synthetic-profile-post/';
+function responseQueue(items, { status = 'SUCCEEDED', buildNumber = CONTROLLED_BUILD_NUMBER, buildId = CONTROLLED_BUILD_ID } = {}) {
+  return [
+    { data: { id: 'synthetic-run', defaultDatasetId: 'synthetic-dataset', buildNumber, buildId } },
+    { data: { id: 'synthetic-run', status, defaultDatasetId: 'synthetic-dataset', buildNumber, buildId } },
+    items, items, items,
+  ];
+}
+const baseOptions = (transport, extra = {}) => ({ token: 'synthetic-token', actorId, transport, sleepFn: async () => {}, ...extra });
+
+test('validateProfileInput builds single and multi-account Actor input with options', () => {
+  assert.deepEqual(validateProfileInput('creator', { resultsLimit: 2 }), { usernames: ['creator'], resultsLimit: 2 });
+  assert.deepEqual(validateProfileInput(['creator_a', 'creator.b'], { onlyPostsNewerThan: '7 days', skipPinnedPosts: true, includeSharesCount: false }),
+    { usernames: ['creator_a', 'creator.b'], onlyPostsNewerThan: '7 days', skipPinnedPosts: true, includeSharesCount: false });
+  assert.throws(() => validateProfileInput(['alice', 'ALICE']), /duplicates/);
+});
+
+test('Profile input rejects empty, invalid, duplicate, mixed-mode, and invalid option values', () => {
+  for (const usernames of [[], [''], ['@alice'], ['a b'], ['.alice'], ['alice..smith'], ['alice', 'ALICE'], null]) assert.throws(() => validateProfileInput(usernames));
+  for (const options of [
+    { resultsLimit: 0 }, { resultsLimit: 1.2 }, { resultsLimit: true }, { onlyPostsNewerThan: '2026-02-30' },
+    { onlyPostsNewerThan: '2026-10-22T00:00:00Z' }, { onlyPostsNewerThan: '0 days' },
+    { skipPinnedPosts: 1 }, { includeSharesCount: 'false' }, { videoUrl: profileUrl }, { bulkUrls: [profileUrl] },
+  ]) assert.throws(() => validateProfileInput('alice', options));
+});
+
+test('Profile attribution uses ownerUsername only and never guesses from userName or item order', () => {
+  const matched = profilePost({ url: profileUrl, type: 'Image', ownerUsername: 'alice', userName: 'other' }, ['alice', 'bob']);
+  assert.equal(matched.status, 'success'); assert.equal(matched.ownerUsername, 'alice');
+  const missingOwnerSingle = profilePost({ url: profileUrl, type: 'Video' }, ['alice']);
+  assert.equal(missingOwnerSingle.status, 'success');
+  assert.equal(profilePost({ url: profileUrl, type: 'Image', ownerUsername: 'bob' }, ['alice']).status, 'unknown');
+  for (const item of [
+    { url: profileUrl, type: 'Image' },
+    { url: profileUrl, type: 'Image', userName: 'alice' },
+    { url: profileUrl, type: 'Image', ownerUsername: 'outside' },
+  ]) assert.equal(profilePost(item, ['alice', 'bob']).status, 'unknown');
+});
+
+test('Profile post preserves raw metadata, accepts no transcript, and validates duration type', () => {
+  const item = { url: profileUrl, type: 'Video', ownerUsername: 'alice', caption: 'synthetic caption', timestamp: 'opaque-time', videoDuration: 4.5, extraField: 7 };
+  const post = profilePost(item, ['alice']);
+  assert.equal(post.status, 'success'); assert.equal(post.raw, item); assert.equal(post.timestamp, 'opaque-time');
+  assert.equal(post.videoDuration, 4.5); assert.equal(Object.hasOwn(post.raw, 'text'), false);
+  assert.equal(profilePost({ ...item, videoDuration: Infinity }, ['alice']).videoDuration, null);
+  assert.equal(profilePost({ ...item, errMsg: 'synthetic actor failure' }, ['alice']).status, 'actor_error');
+  assert.equal(profilePost({ url: 'not-a-post', type: 'Image' }, ['alice']).status, 'unknown');
+});
+
+test('Profile CLI parses explicit usernames and rejects no usernames before credentials', async () => {
+  assert.deepEqual(parseProfileArgs(['alice', 'bob', '--results-limit', '2']).runInput, { usernames: ['alice', 'bob'], resultsLimit: 2 });
+  assert.throws(() => parseProfileArgs([]), /At least one explicit username/);
+  assert.throws(() => parseProfileArgs(['alice', '--unexpected']), /Unknown option/);
+  const transport = new FakeTransport([]); const lines = [];
+  assert.equal(await profileMain(['--help'], { env: {}, transport, print: (line) => lines.push(line) }), 0);
+  assert.match(lines[0], /Usage:/); assert.equal(transport.postCount, 0);
+  await assert.rejects(profileMain(['alice', '--results-limit', '0'], { env: { APIFY_TOKEN: 'synthetic' }, transport, loadEnv() {} }));
+  assert.equal(transport.postCount, 0);
+});
+
+test('Profile client makes one safe Run and returns metadata without transcript fields', async () => {
+  const item = { url: profileUrl, type: 'Video', ownerUsername: 'alice', caption: 'synthetic', timestamp: 1234, videoDuration: 9, extra: 'kept' };
+  const transport = new FakeTransport(responseQueue([item]));
+  const result = await getProfilePosts('alice', baseOptions(transport, { resultsLimit: 1, maxTotalChargeUsd: '0.30', requireChargeCap: true }));
+  assert.equal(transport.postCount, 1); assert.equal(result.status, 'success'); assert.equal(result.posts[0].status, 'success');
+  assert.equal(Object.hasOwn(transport.requests[0].body, 'videoUrl'), false);
+  assert.deepEqual(transport.requests[0].body, { usernames: ['alice'], resultsLimit: 1 });
+  assert.deepEqual(transport.requests[0].query, { restartOnError: false, maxTotalChargeUsd: 0.3, build: CONTROLLED_BUILD_NUMBER });
+  assert.equal(result.buildId, CONTROLLED_BUILD_ID); assert.equal(result.buildVerification, 'verified');
+  assert.equal(result.posts[0].raw.extra, 'kept'); assert.equal(Object.hasOwn(result.posts[0].raw, 'text'), false);
+});
+
+test('Profile client classifies empty, actor_error, and incomplete datasets distinctly', async () => {
+  for (const [items, expected, complete] of [[[], 'empty', true], [[{ url: profileUrl, errMsg: 'synthetic failure' }], 'actor_error', true], [[{ url: profileUrl, type: 'Image' }], 'unknown', false]]) {
+    const transport = new FakeTransport(responseQueue(items));
+    if (!complete) {
+      // The runner marks a full page incomplete; configure the page limit to match this one-item response.
+      const result = await getProfilePosts('alice', baseOptions(transport, { datasetPageLimit: 1 }));
+      assert.equal(result.status, expected); assert.equal(result.datasetComplete, false); continue;
+    }
+    const result = await getProfilePosts('alice', baseOptions(transport));
+    assert.equal(result.status, expected); assert.equal(result.datasetComplete, true);
+  }
+});
+
+test('Reusable client validates before credentials or POST and honors configuration gates', async () => {
+  const transport = new FakeTransport([]);
+  await assert.rejects(getTranscript('[bad](https://www.instagram.com/reel/x/)', baseOptions(transport)));
+  await assert.rejects(getProfilePosts([], baseOptions(transport)));
+  await assert.rejects(getTranscripts([], baseOptions(transport)));
+  await assert.rejects(getTranscript('https://www.instagram.com/reel/synthetic/', { ...baseOptions(transport), token: '' }), ClientConfigurationError);
+  await assert.rejects(getTranscript('https://www.instagram.com/reel/synthetic/', { ...baseOptions(transport), build: 'latest' }), ClientConfigurationError);
+  await assert.rejects(getTranscript('https://www.instagram.com/reel/synthetic/', { ...baseOptions(transport), requireChargeCap: true }), ClientConfigurationError);
+  await assert.rejects(getProfilePosts('alice', { ...baseOptions(transport), bulkUrls: ['https://www.instagram.com/reel/synthetic/'] }), ClientConfigurationError);
+  await assert.rejects(getTranscript('https://www.instagram.com/reel/synthetic/', { ...baseOptions(transport), usernames: ['alice'] }), ClientConfigurationError);
+  assert.equal(transport.postCount, 0);
+});
+
+test('getTranscript returns stable transcript fields with Build evidence', async () => {
+  const item = { text: 'synthetic transcript', segments: [{ start: 0, end: 1, text: 'synthetic' }], title: 'kept' };
+  const transport = new FakeTransport(responseQueue([item]));
+  const result = await getTranscript('https://www.instagram.com/reel/synthetic/', baseOptions(transport));
+  assert.equal(transport.postCount, 1); assert.equal(result.status, 'success');
+  assert.equal(result.text, item.text); assert.deepEqual(result.segments, item.segments); assert.equal(result.items[0].title, 'kept');
+  assert.deepEqual(transport.requests[0].body, { videoUrl: 'https://www.instagram.com/reel/synthetic/' });
+  assert.equal(transport.requests[0].query.restartOnError, false); assert.equal(result.buildVerification, 'verified');
+});
+
+test('getTranscripts performs one Native Bulk POST and exposes aggregate attribution', async () => {
+  const urls = ['https://www.instagram.com/reel/one/', 'https://www.instagram.com/reel/two/'];
+  const items = [{ url: urls[1], text: 'second transcript' }, { url: urls[0], text: 'first transcript' }];
+  const transport = new FakeTransport(responseQueue(items));
+  const result = await getTranscripts(urls, baseOptions(transport, { resultsLimit: 2 }));
+  assert.equal(transport.postCount, 1); assert.equal(result.status, 'all_success');
+  assert.deepEqual(transport.requests[0].body, { bulkUrls: urls, resultsLimit: 2 });
+  assert.deepEqual(result.results.map((row) => row.status), ['success_transcript', 'success_transcript']);
+});
+
+test('Profile business metadata with no text is independent from Transcript status', async () => {
+  const transport = new FakeTransport(responseQueue([{ url: profileUrl, type: 'Image', ownerUsername: 'alice' }]));
+  const result = await getProfilePosts('alice', baseOptions(transport));
+  assert.equal(result.status, 'success'); assert.equal(result.posts[0].status, 'success');
+});
+
+test('POST outcome unknown is surfaced as a typed non-retryable error', async () => {
+  const transport = new FakeTransport([new Error('synthetic timeout')]);
+  await assert.rejects(getTranscript('https://www.instagram.com/reel/synthetic/', baseOptions(transport)), ClientCreationUnknownError);
+  assert.equal(transport.postCount, 1);
+});
+
+test('known Run GET failure maps to a typed transport error and never repeats POST', async () => {
+  const transport = new FakeTransport([
+    { data: { id: 'synthetic-run', defaultDatasetId: 'synthetic-dataset', buildNumber: CONTROLLED_BUILD_NUMBER, buildId: CONTROLLED_BUILD_ID } },
+    new Error('synthetic GET failure'),
+  ]);
+  await assert.rejects(getTranscripts(['https://www.instagram.com/reel/synthetic/'],
+    baseOptions(transport, { maxAttempts: 1 })), (error) => {
+      assert.ok(error instanceof ClientTransportError);
+      assert.equal(error.result.runId, 'synthetic-run');
+      assert.equal(error.result.datasetId, 'synthetic-dataset');
+      return true;
+    });
+  assert.equal(transport.postCount, 1);
+});
+
+test('Client module import does not call fetch', async () => {
+  const originalFetch = globalThis.fetch; let calls = 0;
+  globalThis.fetch = async () => { calls += 1; throw new Error('unexpected fetch'); };
+  try { await import(`../../examples/nodejs/client.mjs?offline=${Date.now()}`); assert.equal(calls, 0); }
+  finally { globalThis.fetch = originalFetch; }
+});

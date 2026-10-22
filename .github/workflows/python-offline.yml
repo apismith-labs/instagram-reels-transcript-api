@@ -70,7 +70,7 @@ jobs:
       - name: Install locked Node.js dependencies
         run: npm ci --ignore-scripts
       - name: Check ESM syntax
-        run: node -e "const {spawnSync}=require('node:child_process'); for (const file of ['reliable-actor.mjs','single-url.mjs','native-bulk.mjs','batch-csv.mjs']) { const result=spawnSync(process.execPath,['--check',file],{stdio:'inherit'}); if (result.status !== 0) process.exit(result.status || 1); }"
+        run: node -e "const {spawnSync}=require('node:child_process'); for (const file of ['reliable-actor.mjs','single-url.mjs','native-bulk.mjs','batch-csv.mjs','profile.mjs','client.mjs']) { const result=spawnSync(process.execPath,['--check',file],{stdio:'inherit'}); if (result.status !== 0) process.exit(result.status || 1); }"
       - name: Run offline Node.js tests
         working-directory: ${{ github.workspace }}
         run: node scripts/run_node_ci_tests.mjs

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "single": "node single-url.mjs",
-    "batch": "node batch-csv.mjs"
+    "batch": "node batch-csv.mjs",
+    "profile": "node profile.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

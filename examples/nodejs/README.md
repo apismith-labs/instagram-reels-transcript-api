@@ -7,16 +7,17 @@ creation, Run polling, and Dataset reads are explicit REST calls, because the re
 behaviour below depends on controlling each stage separately. `p-limit` is used only to bound
 batch concurrency.
 
-**Verified scope.** The real end-to-end acceptance recorded for these examples is deliberately
-narrow: Python (V2-A) and Node.js (V2-B) each passed **one live Run against Build `0.0.50`, on the
-TC01 single-URL subset only**. Native bulk (`bulkUrls`), Profile (`usernames`), CSV batch against
-live URLs, MCP clients, and Build `0.0.51` have **not** been verified against the live Actor, and
-neither has the newer `enhancedcrawl` option. Treat anything outside that single-URL scope as
-unverified until a separate run is approved.
+**Verified scope.** On Actor Build `0.0.50`, Node.js has recorded live success for the single-URL
+path and one Native Bulk Run using the three fixed Reel URLs in the TC02 fixture; all three bulk
+results succeeded. This does not verify arbitrary bulk sizes, mixed success/failure cases, CSV
+Batch against live URLs, Profile inputs, MCP clients, or the newer `enhancedcrawl` option. Build
+`0.0.51` and later Builds are also outside this evidence. Python has separate live acceptance
+records; they do not expand the Node.js evidence described here.
 
 ## What the examples do
 
 - `single-url.mjs` — runs the Actor for one Instagram URL and reports a classified result.
+- `native-bulk.mjs` — sends the repository's TC02 fixture as one Actor-native Bulk Run.
 - `batch-csv.mjs` — reads URLs from a CSV and runs **one Actor Run per row**.
 - `reliable-actor.mjs` — shared staged runner: REST transport, business-status classification,
   retry policy, JSONL journal, and result sanitisation. Importing it performs no I/O.
@@ -132,7 +133,21 @@ sample-output/generated/nodejs-single-url-response.json
 
 Only exit code `0` means a transcript was produced.
 
-### Resume an existing Run
+## Run the Native Bulk example
+
+`native-bulk.mjs` reads `tests/fixtures/live/tc02-native-bulk.json` and sends its three `bulkUrls`
+in one Actor Run. With the required environment configured, run:
+
+```bash
+node examples/nodejs/native-bulk.mjs
+```
+
+This command creates one Actor Run. The script also accepts `--resume RUN_ID` to recover a Run
+already recorded in the Node.js journal; it does not accept URL arguments or split the fixture
+into multiple Runs. The recorded live success covers only those three fixed URLs on Build
+`0.0.50`; arbitrary sizes and mixed outcomes remain unverified.
+
+## Resume an existing Run
 
 ```bash
 node examples/nodejs/single-url.mjs --resume RUN_ID
@@ -169,7 +184,7 @@ The script prints a JSON summary containing every status count plus `processed` 
 where `failed = processed - success`. Exit code is `0` when every row succeeded, `1` when at
 least one row did not, and `2` for configuration errors.
 
-**Batch has no `--resume`.** Only `single-url.mjs` supports resuming a specific Run.
+**CSV Batch has no `--resume`.** `single-url.mjs` and `native-bulk.mjs` support resuming a specific Run recorded in the journal.
 
 ## Security
 

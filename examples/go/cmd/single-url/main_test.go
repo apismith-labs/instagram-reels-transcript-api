@@ -19,7 +19,7 @@ func (j fakeJournal) Append(context.Context, transcriptapi.JournalEntry) error {
 
 type fakeHTTP struct{ posts int }
 
-func (f *fakeHTTP) Do(r *http.Request) (*http.Response, error) {
+func (f *fakeHTTP) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.Method == http.MethodPost {
 		f.posts++
 	}
@@ -36,7 +36,7 @@ func TestCLIHelpAndBadInputsDoNotReadCredentialsOrPost(t *testing.T) {
 		posts := &fakeHTTP{}
 		var stdout, stderr bytes.Buffer
 		code := run(args, dependencies{getenv: func(string) string { reads++; return "secret" }, stdout: &stdout, stderr: &stderr,
-			transport: posts, journal: fakeJournal{}})
+			transport: &http.Client{Transport: posts}, journal: fakeJournal{}})
 		if reads != 0 {
 			t.Errorf("args %v read environment %d times", args, reads)
 		}
@@ -61,7 +61,7 @@ func TestCLIRequiresConfiguredCapBeforeAnyRequest(t *testing.T) {
 		posts := &fakeHTTP{}
 		var stderr bytes.Buffer
 		code := run([]string{"https://instagram.com/reel/x/"}, dependencies{getenv: func(key string) string { return env[key] },
-			stderr: &stderr, transport: posts, journal: fakeJournal{}})
+			stderr: &stderr, transport: &http.Client{Transport: posts}, journal: fakeJournal{}})
 		if code != 2 || posts.posts != 0 {
 			t.Fatalf("code=%d posts=%d error=%s", code, posts.posts, stderr.String())
 		}
@@ -73,7 +73,7 @@ func TestCLIMissingTokenFailsBeforeJournalOrTransport(t *testing.T) {
 	journalCalled := false
 	var stderr bytes.Buffer
 	code := run([]string{"https://instagram.com/reel/x/"}, dependencies{
-		getenv: func(string) string { return "" }, stderr: &stderr, transport: posts,
+		getenv: func(string) string { return "" }, stderr: &stderr, transport: &http.Client{Transport: posts},
 		journal: journalFunc(func(context.Context, transcriptapi.JournalEntry) error { journalCalled = true; return nil }),
 	})
 	if code != 2 || posts.posts != 0 || journalCalled || !strings.Contains(stderr.String(), "APIFY_TOKEN is required") {
@@ -92,7 +92,7 @@ func TestCLIOnlyUsesInjectedEnvironmentAndDoesNotLoadDotEnv(t *testing.T) {
 	posts := &fakeHTTP{}
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--output-dir", t.TempDir(), "https://instagram.com/reel/x/"}, dependencies{
-		getenv: func(key string) string { return env[key] }, stdout: &stdout, stderr: &stderr, transport: posts,
+		getenv: func(key string) string { return env[key] }, stdout: &stdout, stderr: &stderr, transport: &http.Client{Transport: posts},
 		journal: fakeJournal{}, writeResult: func(_ string, result transcriptapi.Result, _ time.Time) (string, error) {
 			if result.Status != transcriptapi.StatusCreationUnknown {
 				t.Fatalf("unexpected result: %+v", result)
@@ -111,7 +111,7 @@ func TestCLIOnlyUsesInjectedEnvironmentAndDoesNotLoadDotEnv(t *testing.T) {
 func TestSummaryJSONShape(t *testing.T) {
 	var buf bytes.Buffer
 	value := cliOutput{Result: transcriptapi.Result{Status: transcriptapi.StatusEmpty, ActorID: transcriptapi.DefaultActorID,
-		Segments: []transcriptapi.Segment{}, RawItems: []map[string]any{}, DatasetComplete: true}, OutputFile: "output.json"}
+		Segments: []transcriptapi.Segment{}, RawItems: []any{}, DatasetComplete: true}, OutputFile: "output.json"}
 	if err := json.NewEncoder(&buf).Encode(value); err != nil {
 		t.Fatal(err)
 	}

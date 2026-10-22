@@ -64,18 +64,16 @@ type Config struct {
 	BuildID           string
 	MaxTotalChargeUSD float64
 	RequireChargeCap  bool
-	HTTPClient        HTTPDoer
-	Journal           Journal
-	Sleep             func(context.Context, time.Duration) error
-	Now               func() time.Time
-	PollInterval      time.Duration
-	MaxPolls          int
-	DatasetLimit      int
-}
-
-// HTTPDoer permits tests and callers to inject a transport without global state.
-type HTTPDoer interface {
-	Do(*http.Request) (*http.Response, error)
+	// HTTPClient supports standard net/http redirects. Run creation uses a copy
+	// with redirect following disabled; custom RoundTrippers must perform one
+	// exchange and must not implement their own redirect loop.
+	HTTPClient   *http.Client
+	Journal      Journal
+	Sleep        func(context.Context, time.Duration) error
+	Now          func() time.Time
+	PollInterval time.Duration
+	MaxPolls     int
+	DatasetLimit int
 }
 
 type Journal interface {
@@ -101,22 +99,23 @@ type JournalEntry struct {
 type Segment map[string]any
 
 type Result struct {
-	Status            Status           `json:"status"`
-	RunStatus         string           `json:"runStatus,omitempty"`
-	RunID             string           `json:"runId,omitempty"`
-	DatasetID         string           `json:"datasetId,omitempty"`
-	SourceURL         string           `json:"sourceUrl"`
-	ActorID           string           `json:"actorId"`
-	BuildNumber       string           `json:"buildNumber,omitempty"`
-	BuildID           string           `json:"buildId,omitempty"`
-	BuildVerification string           `json:"buildVerification"`
-	DatasetComplete   bool             `json:"datasetComplete"`
-	Text              string           `json:"text,omitempty"`
-	Segments          []Segment        `json:"segments"`
-	RawItems          []map[string]any `json:"rawItems"`
-	Error             string           `json:"error,omitempty"`
-	Stage             string           `json:"stage,omitempty"`
-	Cause             error            `json:"-"`
+	Status                  Status    `json:"status"`
+	RunStatus               string    `json:"runStatus,omitempty"`
+	RunID                   string    `json:"runId,omitempty"`
+	DatasetID               string    `json:"datasetId,omitempty"`
+	SourceURL               string    `json:"sourceUrl"`
+	ActorID                 string    `json:"actorId"`
+	BuildNumber             string    `json:"buildNumber,omitempty"`
+	BuildID                 string    `json:"buildId,omitempty"`
+	BuildVerification       string    `json:"buildVerification"`
+	DatasetComplete         bool      `json:"datasetComplete"`
+	Text                    string    `json:"text,omitempty"`
+	Segments                []Segment `json:"segments"`
+	RawItems                []any     `json:"rawItems"`
+	AttributionVerification string    `json:"attributionVerification"`
+	Error                   string    `json:"error,omitempty"`
+	Stage                   string    `json:"stage,omitempty"`
+	Cause                   error     `json:"-"`
 }
 
 var (

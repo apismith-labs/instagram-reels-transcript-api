@@ -28,3 +28,19 @@ func ValidateVideoURL(raw string) (string, error) {
 	}
 	return trimmed, nil
 }
+
+func canonicalVideoIdentity(raw string) (string, error) {
+	valid, err := ValidateVideoURL(raw)
+	if err != nil {
+		return "", err
+	}
+	u, _ := url.Parse(valid)
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	kind := parts[0]
+	if kind == "reels" {
+		kind = "reel"
+	}
+	// The www/non-www host aliases and reel/reels path aliases identify the
+	// same public Reel. Shortcodes remain case-sensitive and /p stays distinct.
+	return kind + ":" + parts[1], nil
+}

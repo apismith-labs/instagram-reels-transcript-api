@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -20,7 +21,7 @@ type dependencies struct {
 	getenv      func(string) string
 	stdout      io.Writer
 	stderr      io.Writer
-	transport   transcriptapi.HTTPDoer
+	transport   *http.Client
 	journal     transcriptapi.Journal
 	writeResult func(string, transcriptapi.Result, time.Time) (string, error)
 	now         func() time.Time

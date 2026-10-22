@@ -18,11 +18,12 @@ import (
 const defaultAPIBaseURL = "https://api.apify.com/v2"
 
 type Client struct {
-	config Config
-	client HTTPDoer
-	base   string
-	sleep  func(context.Context, time.Duration) error
-	now    func() time.Time
+	config       Config
+	client       *http.Client
+	createClient *http.Client
+	base         string
+	sleep        func(context.Context, time.Duration) error
+	now          func() time.Time
 }
 
 type apiEnvelope struct {
@@ -73,6 +74,10 @@ func NewClient(config Config) (*Client, error) {
 	if config.HTTPClient == nil {
 		config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
 	}
+	// The injected client's transport, timeout, and cookie jar remain in use, but
+	// creation requests must not let net/http replay POSTs after a redirect.
+	createClient := *config.HTTPClient
+	createClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	if config.PollInterval <= 0 {
 		config.PollInterval = 2 * time.Second
 	}
@@ -91,7 +96,7 @@ func NewClient(config Config) (*Client, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Client{config: config, client: config.HTTPClient, base: base, sleep: sleep, now: now}, nil
+	return &Client{config: config, client: config.HTTPClient, createClient: &createClient, base: base, sleep: sleep, now: now}, nil
 }
 
 func finitePositive(value float64) bool {
@@ -123,7 +128,7 @@ func (c *Client) GetTranscript(ctx context.Context, reelURL string) Result {
 		return c.failure(StatusTransportError, "input_validation", reelURL, "", "", "", c.config.BuildNumber, c.config.BuildID, "unverified", err)
 	}
 	result := Result{ActorID: c.config.ActorID, BuildNumber: c.config.BuildNumber, BuildID: c.config.BuildID,
-		SourceURL: validURL, BuildVerification: "pending", Segments: []Segment{}, RawItems: []map[string]any{}}
+		SourceURL: validURL, BuildVerification: "pending", Segments: []Segment{}, RawItems: []any{}, AttributionVerification: "pending"}
 	entry := c.journalEntry("intent", validURL, "", "", "", c.config.BuildNumber, c.config.BuildID, "pending", capValue(c.config.MaxTotalChargeUSD))
 	if err := c.config.Journal.Append(ctx, entry); err != nil {
 		return c.failure(StatusTransportError, "journal_intent", validURL, "", "", "", "", "", "", &Error{Kind: ErrorJournal, Stage: "journal_intent", Err: err})
@@ -211,7 +216,7 @@ func (c *Client) GetTranscript(ctx context.Context, reelURL string) Result {
 		return c.finishFailure(ctx, result, validURL, StatusTransportError, "dataset_read", err)
 	}
 	result.RawItems, result.DatasetComplete = items, complete
-	result.Status, result.Text, result.Segments, result.Error = classifyItems(items, complete)
+	result.Status, result.Text, result.Segments, result.Error, result.AttributionVerification = classifyItems(items, complete, validURL)
 	if err := c.config.Journal.Append(ctx, c.journalEntry(string(result.Status), validURL, result.RunID, result.DatasetID,
 		result.RunStatus, result.BuildNumber, result.BuildID, result.BuildVerification, capValue(c.config.MaxTotalChargeUSD))); err != nil {
 		result.Status, result.Stage, result.Error = StatusTransportError, "journal_terminal", "Run completed but terminal Journal write failed"
@@ -238,7 +243,11 @@ func (c *Client) request(ctx context.Context, method, endpoint string, body []by
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.client.Do(req)
+	requestClient := c.client
+	if method == http.MethodPost {
+		requestClient = c.createClient
+	}
+	resp, err := requestClient.Do(req)
 	if err != nil {
 		return nil, 0, &Error{Kind: ErrorTransport, Stage: "http", Err: err}
 	}
@@ -294,7 +303,7 @@ func (c *Client) waitForRun(ctx context.Context, runID string, created runMetada
 	return latest, &Error{Kind: ErrorTransport, Stage: "run_poll_timeout", Err: errors.New("timed out waiting for Actor Run terminal status")}
 }
 
-func (c *Client) readDataset(ctx context.Context, datasetID string) ([]map[string]any, bool, error) {
+func (c *Client) readDataset(ctx context.Context, datasetID string) ([]any, bool, error) {
 	endpoint := c.base + "/datasets/" + url.PathEscape(datasetID) + "/items?limit=" + strconv.Itoa(c.config.DatasetLimit)
 	var raw []byte
 	var err error
@@ -312,46 +321,77 @@ func (c *Client) readDataset(ctx context.Context, datasetID string) ([]map[strin
 	if err != nil {
 		return nil, false, &Error{Kind: ErrorTransport, Stage: "dataset_get", Err: err}
 	}
-	items := []map[string]any{}
+	items := []any{}
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || trimmed[0] != '[' {
 		return nil, false, &Error{Kind: ErrorProtocol, Stage: "dataset_decode", Err: errors.New("Dataset response is not a JSON array")}
 	}
-	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil, false, &Error{Kind: ErrorProtocol, Stage: "dataset_decode", Err: errors.New("Dataset response contains an invalid item")}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&items); err != nil {
+		return nil, false, &Error{Kind: ErrorProtocol, Stage: "dataset_decode", Err: errors.New("Dataset response contains invalid JSON")}
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, false, &Error{Kind: ErrorProtocol, Stage: "dataset_decode", Err: errors.New("Dataset response contains trailing data")}
 	}
 	if items == nil {
-		items = []map[string]any{}
+		items = []any{}
 	}
 	return items, len(items) < c.config.DatasetLimit, nil
 }
 
-func classifyItems(items []map[string]any, complete bool) (Status, string, []Segment, string) {
+func classifyItems(items []any, complete bool, sourceURL string) (Status, string, []Segment, string, string) {
 	segments := []Segment{}
 	if len(items) == 0 {
 		if !complete {
-			return StatusUnknown, "", segments, "Dataset completeness could not be established"
+			return StatusUnknown, "", segments, "Dataset completeness could not be established", "unverified"
 		}
-		return StatusEmpty, "", segments, ""
+		return StatusEmpty, "", segments, "", "unverified"
+	}
+	requestedIdentity, identityErr := canonicalVideoIdentity(sourceURL)
+	if identityErr != nil {
+		return StatusUnknown, "", segments, "Requested URL could not be normalized for attribution", "unknown"
+	}
+	verification := "verified"
+	objects := make([]map[string]any, 0, len(items))
+	for _, rawItem := range items {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			return StatusUnknown, "", segments, "Dataset contained a non-object item", "unknown"
+		}
+		objects = append(objects, item)
+		itemURL, exists := item["url"]
+		if !exists {
+			verification = "unverified"
+			continue
+		}
+		urlText, ok := itemURL.(string)
+		if !ok {
+			return StatusUnknown, "", segments, "Dataset item URL has an unexpected type", "unknown"
+		}
+		itemIdentity, err := canonicalVideoIdentity(urlText)
+		if err != nil {
+			return StatusUnknown, "", segments, "Dataset item URL is invalid", "unknown"
+		}
+		if itemIdentity != requestedIdentity {
+			return StatusUnknown, "", segments, "Dataset item URL does not match the requested Reel", "mismatch"
+		}
 	}
 	var transcript string
-	for _, item := range items {
-		if item == nil {
-			return StatusUnknown, "", segments, "Dataset contained a non-object item"
-		}
+	for _, item := range objects {
 		if errMsg, ok := item["errMsg"].(string); ok && strings.TrimSpace(errMsg) != "" {
-			return StatusActorError, "", segments, errMsg
+			return StatusActorError, "", segments, errMsg, verification
 		}
 		if rawErr, exists := item["errMsg"]; exists && rawErr != nil {
 			if _, ok := rawErr.(string); !ok {
-				return StatusUnknown, "", segments, "Actor error field has an unexpected type"
+				return StatusUnknown, "", segments, "Actor error field has an unexpected type", verification
 			}
 		}
 		if transcript == "" {
 			if rawText, exists := item["text"]; exists && rawText != nil {
 				text, ok := rawText.(string)
 				if !ok {
-					return StatusUnknown, "", segments, "Transcript text has an unexpected type"
+					return StatusUnknown, "", segments, "Transcript text has an unexpected type", verification
 				}
 				if strings.TrimSpace(text) == "" {
 					continue
@@ -360,12 +400,12 @@ func classifyItems(items []map[string]any, complete bool) (Status, string, []Seg
 				if rawSegments, exists := item["segments"]; exists && rawSegments != nil {
 					list, ok := rawSegments.([]any)
 					if !ok {
-						return StatusUnknown, transcript, segments, "Transcript segments have an unexpected type"
+						return StatusUnknown, transcript, segments, "Transcript segments have an unexpected type", verification
 					}
 					for _, raw := range list {
 						segment, ok := raw.(map[string]any)
 						if !ok {
-							return StatusUnknown, transcript, segments, "Transcript segment has an unexpected type"
+							return StatusUnknown, transcript, segments, "Transcript segment has an unexpected type", verification
 						}
 						segments = append(segments, Segment(segment))
 					}
@@ -374,12 +414,12 @@ func classifyItems(items []map[string]any, complete bool) (Status, string, []Seg
 		}
 	}
 	if !complete {
-		return StatusUnknown, transcript, segments, "Dataset reached the configured single-page item limit"
+		return StatusUnknown, transcript, segments, "Dataset reached the configured single-page item limit", verification
 	}
 	if transcript != "" {
-		return StatusSuccess, transcript, segments, ""
+		return StatusSuccess, transcript, segments, "", verification
 	}
-	return StatusNoTranscript, "", segments, "Dataset items did not contain non-empty transcript text"
+	return StatusNoTranscript, "", segments, "Dataset items did not contain non-empty transcript text", verification
 }
 
 func (c *Client) journalEntry(stage, sourceURL, runID, datasetID, runStatus, buildNumber, buildID, verification string, cap *float64) JournalEntry {
@@ -409,7 +449,7 @@ func (c *Client) failure(status Status, stage, sourceURL, runID, datasetID, runS
 	}
 	return Result{Status: status, Stage: stage, SourceURL: sourceURL, RunID: runID, DatasetID: datasetID, RunStatus: runStatus,
 		ActorID: c.config.ActorID, BuildNumber: buildNumber, BuildID: buildID, BuildVerification: verification,
-		Segments: []Segment{}, RawItems: []map[string]any{}, Error: err.Error(),
+		Segments: []Segment{}, RawItems: []any{}, AttributionVerification: "unverified", Error: err.Error(),
 		Cause: &Error{Kind: kind, Stage: stage, Err: err}}
 }
 

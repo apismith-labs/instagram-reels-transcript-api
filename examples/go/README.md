@@ -13,12 +13,18 @@ Python or Node.js feature parity. It has not received a real Actor acceptance.
   `p` URL paths on `instagram.com` are accepted; query strings and fragments are rejected.
 - Build Number `0.0.50` and Build ID `aJLRmMdQapLQRT4sJ` are fixed and verified against the
   returned Run metadata before Dataset contents are accepted.
+- Dataset item URLs are checked against the requested Reel when present. A mismatching or malformed
+  URL makes the result `unknown`; if the Actor omits the URL, the result records attribution as
+  `unverified` rather than claiming it was checked.
 - Set `RequireChargeCap: true` and a positive `MaxTotalChargeUSD` (or use the CLI options below).
   The cap is sent as the Run query option, not Actor input. Apify may reject it and it is not a
   guarantee of the final account bill.
-- New Run requests explicitly send `restartOnError=false`. The creation POST is attempted once;
-  HTTP 429, server errors, timeouts, and ambiguous responses are not retried. A
-  `creation_unknown` outcome must be reconciled before any separate retry decision.
+- New Run requests explicitly send `restartOnError=false`. The creation POST uses a copied
+  `http.Client` whose redirect policy returns 3xx responses directly, preventing 301/302/303/307/308
+  from replaying or forwarding the POST. HTTP 429, server errors, timeouts, and ambiguous responses
+  are not retried. Run and Dataset GET requests retain the configured client's normal redirect and
+  bounded-retry behavior. A `creation_unknown` outcome must be reconciled before any separate retry
+  decision.
 - An append-only JSONL Journal records intent before creation and the known Run identity as soon as
   available. Journal failures stop the flow; a Run created before a persistence error is returned
   with its known IDs where available.
@@ -101,13 +107,19 @@ func main() {
 ```
 
 `Result` retains `Status`, actual `RunStatus`, `RunID`, `DatasetID`, `ActorID`, Build Number and ID,
-`BuildVerification`, `DatasetComplete`, `Text`, `Segments`, `RawItems`, and error information.
+`BuildVerification`, `DatasetComplete`, `Text`, `Segments`, `RawItems`,
+`AttributionVerification`, and error information. Attribution is `verified` when item URLs match,
+`unverified` when the Actor omits URL fields, and `mismatch` or `unknown` for conflicting or invalid
+URL data.
 `Cause` provides a typed error for transport, protocol, Journal, or ambiguous-creation failures and
-is omitted from JSON. The caller can inject an `HTTPDoer`, `Journal`, clock, and context-aware sleep
-function for isolated tests.
+is omitted from JSON. The caller can inject an `*http.Client` (including a custom `RoundTripper`),
+`Journal`, clock, and context-aware sleep function for isolated tests. Creation redirects are
+disabled even when an HTTP client is injected. A custom `RoundTripper` must perform one HTTP
+exchange and must not implement its own redirect loop.
 
 The module currently supports Single URL only. Native Bulk, Profile, Resume, and complete CSV Batch
-are not implemented.
+are not implemented. `Result.RawItems` preserves Dataset entries, including non-object JSON values;
+those non-object entries produce `unknown` rather than being discarded.
 
 ## Retired CSV Batch entry
 

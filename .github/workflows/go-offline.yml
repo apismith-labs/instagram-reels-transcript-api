@@ -30,8 +30,10 @@ jobs:
         run: test ! -e ../../.env
       - name: Check Go formatting
         run: test -z "$(gofmt -l .)"
+      - name: Self-test Go test gate
+        run: python3 scripts/run_offline_tests.py --self-test
       - name: Run offline Go tests
-        run: go test ./...
+        run: python3 scripts/run_offline_tests.py
       - name: Run Go vet
         run: go vet ./...
       - name: Build Go packages

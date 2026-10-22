@@ -280,7 +280,7 @@ func TestMalformedDatasetIsNotMisreportedAsEmpty(t *testing.T) {
 
 func TestMalformedTranscriptFieldsAreUnknown(t *testing.T) {
 	for _, item := range []map[string]any{{"text": 7}, {"errMsg": 7}, {"text": "valid", "segments": "not-an-array"}} {
-		status, _, _, _ := classifyItems([]map[string]any{item}, true)
+		status, _, _, _, _ := classifyItems([]any{item}, true, testURL)
 		if status != StatusUnknown {
 			t.Errorf("item %#v got status %s", item, status)
 		}
@@ -440,7 +440,7 @@ func fileMode(path string) os.FileMode {
 func TestUniqueOutputPreservesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)
-	result := Result{Status: StatusSuccess, Segments: []Segment{}, RawItems: []map[string]any{}}
+	result := Result{Status: StatusSuccess, Segments: []Segment{}, RawItems: []any{}}
 	first, err := WriteResultUnique(dir, result, now)
 	if err != nil {
 		t.Fatal(err)
@@ -493,5 +493,157 @@ func TestHTTPEndToEndUsingOfflineRecorderTransport(t *testing.T) {
 	got := client.GetTranscript(context.Background(), testURL)
 	if got.Status != StatusSuccess || posts != 1 {
 		t.Fatalf("%+v posts=%d", got, posts)
+	}
+}
+
+func TestRunCreationRedirectsNeverReplayPOSTOrFollowLocation(t *testing.T) {
+	for _, scenario := range []struct {
+		code int
+		name string
+	}{
+		{http.StatusMovedPermanently, "301"},
+		{http.StatusFound, "302"},
+		{http.StatusSeeOther, "303"},
+		{http.StatusTemporaryRedirect, "307"},
+		{http.StatusPermanentRedirect, "308"},
+	} {
+		for _, injected := range []bool{false, true} {
+			name := "default-client"
+			if injected {
+				name = "injected-client"
+			}
+			t.Run(scenario.name+"/"+name, func(t *testing.T) {
+				createRequests, targetRequests := 0, 0
+				transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					if r.URL.Host == "other.synthetic" {
+						targetRequests++
+						return respond(http.StatusOK, "unexpected redirect request"), nil
+					}
+					createRequests++
+					if r.Method != http.MethodPost {
+						t.Errorf("creation request method=%s", r.Method)
+					}
+					response := respond(scenario.code, "redirect response")
+					response.Header.Set("Location", "https://other.synthetic/redirect-target")
+					return response, nil
+				})
+				journal := &memoryJournal{}
+				config := Config{Token: "synthetic-token", ActorID: "owner/actor", Journal: journal,
+					Sleep: func(context.Context, time.Duration) error { return nil }}
+				if injected {
+					config.HTTPClient = &http.Client{Timeout: time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
+						t.Error("caller's redirect policy must not be used for creation POSTs")
+						return nil
+					}}
+				}
+				client, err := NewClient(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !injected {
+					client.client.Transport = transport
+					client.createClient.Transport = transport
+				}
+				client.base = "https://apify.synthetic/v2"
+				got := client.GetTranscript(context.Background(), testURL)
+				if got.Status != StatusCreationUnknown {
+					t.Fatalf("redirect status %d produced %s: %+v", scenario.code, got.Status, got)
+				}
+				if createRequests != 1 || targetRequests != 0 {
+					t.Fatalf("redirect status %d made creation=%d target=%d requests", scenario.code, createRequests, targetRequests)
+				}
+				if len(journal.entries) != 2 || journal.entries[0].Stage != "intent" || journal.entries[1].Stage != "run_create_unknown" {
+					t.Fatalf("redirect reconciliation missing from Journal: %+v", journal.entries)
+				}
+			})
+		}
+	}
+}
+
+func TestDatasetNonObjectItemsAreUnknownAndPreservedOverHTTP(t *testing.T) {
+	for _, scenario := range []struct {
+		name, body string
+		want       Status
+		wantRaw    int
+	}{
+		{"numbers", `[1,2]`, StatusUnknown, 2},
+		{"null", `[null]`, StatusUnknown, 1},
+		{"mixed", `[{"url":"https://www.instagram.com/reel/synthetic123/","text":"must not pass"},1]`, StatusUnknown, 2},
+		{"invalid json", `[`, StatusTransportError, 0},
+		{"trailing data", `[] trailing`, StatusTransportError, 0},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			posts := 0
+			transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				switch {
+				case r.Method == http.MethodPost:
+					posts++
+					return respond(201, `{"data":{"id":"run","defaultDatasetId":"ds","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`), nil
+				case strings.HasSuffix(r.URL.Path, "/items"):
+					return respond(200, scenario.body), nil
+				default:
+					return respond(200, `{"data":{"id":"run","status":"SUCCEEDED","defaultDatasetId":"ds","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`), nil
+				}
+			})
+			got := newClient(t, transport, &memoryJournal{}, nil).GetTranscript(context.Background(), testURL)
+			if got.Status != scenario.want || got.RunID != "run" || posts != 1 {
+				t.Fatalf("status=%s run=%q posts=%d, want=%s", got.Status, got.RunID, posts, scenario.want)
+			}
+			if len(got.RawItems) != scenario.wantRaw {
+				t.Fatalf("raw item count=%d want=%d; items=%#v", len(got.RawItems), scenario.wantRaw, got.RawItems)
+			}
+			if scenario.name == "numbers" && got.RawItems[0] != json.Number("1") {
+				t.Fatalf("numeric raw item was not preserved: %#v", got.RawItems[0])
+			}
+			if scenario.name == "null" && got.RawItems[0] != nil {
+				t.Fatalf("null raw item was not preserved: %#v", got.RawItems[0])
+			}
+			if scenario.name == "mixed" && got.Text != "" {
+				t.Fatalf("transcript from mixed malformed Dataset was exposed: %q", got.Text)
+			}
+		})
+	}
+}
+
+func TestSingleURLAttributionIsConservative(t *testing.T) {
+	matching := `https://www.instagram.com/reel/synthetic123/`
+	for _, scenario := range []struct {
+		name, items, wantStatus, wantVerification string
+		wantText                                  string
+	}{
+		{"exact", `[{"url":"` + matching + `","text":"matched"}]`, string(StatusSuccess), "verified", "matched"},
+		{"host alias", `[{"url":"https://instagram.com/reel/synthetic123/","text":"matched"}]`, string(StatusSuccess), "verified", "matched"},
+		{"reels alias", `[{"url":"https://instagram.com/reels/synthetic123/","text":"matched"}]`, string(StatusSuccess), "verified", "matched"},
+		{"different work", `[{"url":"https://instagram.com/reel/different/","text":"foreign transcript"}]`, string(StatusUnknown), "mismatch", ""},
+		{"missing URL", `[{"text":"legacy shape"}]`, string(StatusSuccess), "unverified", "legacy shape"},
+		{"invalid URL", `[{"url":"not-a-url","text":"must not pass"}]`, string(StatusUnknown), "unknown", ""},
+		{"wrong URL type", `[{"url":7,"text":"must not pass"}]`, string(StatusUnknown), "unknown", ""},
+		{"multiple with mismatch", `[{"url":"` + matching + `","text":"first"},{"url":"https://instagram.com/reel/other/","text":"foreign"}]`, string(StatusUnknown), "mismatch", ""},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			posts, datasetReads := 0, 0
+			transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				switch {
+				case r.Method == http.MethodPost:
+					posts++
+					return respond(201, `{"data":{"id":"run","defaultDatasetId":"ds","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`), nil
+				case strings.HasSuffix(r.URL.Path, "/items"):
+					datasetReads++
+					return respond(200, scenario.items), nil
+				default:
+					return respond(200, `{"data":{"id":"run","status":"SUCCEEDED","defaultDatasetId":"ds","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`), nil
+				}
+			})
+			got := newClient(t, transport, &memoryJournal{}, nil).GetTranscript(context.Background(), testURL)
+			if posts != 1 || datasetReads != 1 || string(got.Status) != scenario.wantStatus || got.AttributionVerification != scenario.wantVerification {
+				t.Fatalf("status=%s attribution=%s posts=%d datasetReads=%d", got.Status, got.AttributionVerification, posts, datasetReads)
+			}
+			if got.Text != scenario.wantText {
+				t.Fatalf("text=%q want=%q", got.Text, scenario.wantText)
+			}
+			if len(got.RawItems) != 1 && scenario.name != "multiple with mismatch" {
+				t.Fatalf("raw Dataset items were not retained: %#v", got.RawItems)
+			}
+		})
 	}
 }

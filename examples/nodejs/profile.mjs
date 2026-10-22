@@ -17,6 +17,12 @@ function requiredOptionValue(argv, index, option) {
   return value;
 }
 
+function rejectBooleanFlagValue(argv, index, option) {
+  if (['true', 'false', '1', '0'].includes(argv[index + 1])) {
+    throw new TypeError(`${option} is a flag and does not accept a value; omit ${argv[index + 1]}`);
+  }
+}
+
 export function parseArgs(argv) {
   if (argv.includes('--help') || argv.includes('-h')) return { help: true };
   const usernames = []; const options = {};
@@ -30,12 +36,15 @@ export function parseArgs(argv) {
       if (Object.hasOwn(options, 'onlyPostsNewerThan')) throw new TypeError('--only-posts-newer-than may be supplied once');
       options.onlyPostsNewerThan = requiredOptionValue(argv, index, arg); index += 1;
     }
-    else if (arg === '--resume') {
-      requiredOptionValue(argv, index, arg);
-      throw new TypeError('Profile Resume is not supported');
+    else if (arg === '--resume') throw new TypeError('Profile Resume is not supported');
+    else if (arg === '--skip-pinned-posts') {
+      rejectBooleanFlagValue(argv, index, arg);
+      options.skipPinnedPosts = true;
     }
-    else if (arg === '--skip-pinned-posts') options.skipPinnedPosts = true;
-    else if (arg === '--include-shares-count') options.includeSharesCount = true;
+    else if (arg === '--include-shares-count') {
+      rejectBooleanFlagValue(argv, index, arg);
+      options.includeSharesCount = true;
+    }
     else if (arg.startsWith('-')) throw new TypeError(`Unknown option: ${arg}\n${USAGE}`);
     else usernames.push(arg);
   }

@@ -93,6 +93,49 @@ test('Profile CLI rejects every missing or invalid valued option before env load
     { usernames: ['alice'], onlyPostsNewerThan: '7 days' });
 });
 
+test('Profile boolean flags reject adjacent values before env loading or POST', async () => {
+  for (const argv of [
+    ['alice', '--skip-pinned-posts', 'true'],
+    ['alice', '--skip-pinned-posts', 'false'],
+    ['alice', '--include-shares-count', '1'],
+    ['alice', '--include-shares-count', '0'],
+  ]) {
+    let loadEnvCalled = false; const transport = new FakeTransport([]); const errors = [];
+    const code = await profileMain(argv, { env: { APIFY_TOKEN: 'synthetic-token' }, transport,
+      loadEnv: () => { loadEnvCalled = true; }, error: (message) => errors.push(message) });
+    assert.equal(code, 2, argv.join(' ')); assert.equal(loadEnvCalled, false); assert.equal(transport.postCount, 0);
+    assert.match(errors[0], /does not accept a value/);
+  }
+  assert.deepEqual(parseProfileArgs(['alice', '--skip-pinned-posts']).runInput,
+    { usernames: ['alice'], skipPinnedPosts: true });
+  assert.deepEqual(parseProfileArgs(['alice', '--include-shares-count']).runInput,
+    { usernames: ['alice'], includeSharesCount: true });
+  assert.deepEqual(parseProfileArgs(['alice', 'bob', '--skip-pinned-posts']).runInput,
+    { usernames: ['alice', 'bob'], skipPinnedPosts: true });
+  assert.deepEqual(parseProfileArgs(['true']).runInput, { usernames: ['true'] });
+});
+
+test('Profile boolean flags and multiple usernames reach one Fake Actor Input as intended', async () => {
+  const transport = new FakeTransport(responseQueue([{ url: profileUrl, type: 'Image', ownerUsername: 'alice' }]));
+  const code = await profileMain(['alice', 'bob', '--skip-pinned-posts', '--include-shares-count'], {
+    env: { APIFY_TOKEN: 'synthetic-token' }, transport, loadEnv() {},
+    journal: { append: async () => {}, latest: async () => null },
+    writeOutput: async () => 'synthetic-output.json', print() {},
+  });
+  assert.equal(code, 0); assert.equal(transport.postCount, 1);
+  assert.deepEqual(transport.requests[0].body, { usernames: ['alice', 'bob'], skipPinnedPosts: true, includeSharesCount: true });
+});
+
+test('Profile Resume is always rejected with the precise unsupported message before env or POST', async () => {
+  for (const argv of [['--resume'], ['--resume', 'synthetic-run']]) {
+    let loadEnvCalled = false; const transport = new FakeTransport([]); const errors = [];
+    const code = await profileMain(argv, { env: { APIFY_TOKEN: 'synthetic-token' }, transport,
+      loadEnv: () => { loadEnvCalled = true; }, error: (message) => errors.push(message) });
+    assert.equal(code, 2); assert.equal(errors[0], 'Profile Resume is not supported');
+    assert.equal(loadEnvCalled, false); assert.equal(transport.postCount, 0);
+  }
+});
+
 test('Profile client makes one safe Run and returns metadata without transcript fields', async () => {
   const item = { url: profileUrl, type: 'Video', ownerUsername: 'alice', caption: 'synthetic', timestamp: 1234, videoDuration: 9, extra: 'kept' };
   const transport = new FakeTransport(responseQueue([item]));

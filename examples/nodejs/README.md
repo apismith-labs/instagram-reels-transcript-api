@@ -43,6 +43,23 @@ are saved to a unique file under `sample-output/generated/`; an existing output 
 overwritten. The summary prints the selected `outputFile` path. Only status `success` means a
 non-empty transcript was returned.
 
+### Single URL exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | `success` — a non-empty transcript was returned without `errMsg` |
+| `2` | Invalid arguments, configuration, missing token, resume lookup, or output write failure |
+| `4` | `actor_error` — an item contains a non-empty `errMsg` |
+| `5` | `empty` — the Dataset contains no items |
+| `6` | `no_transcript` — items exist but no non-empty transcript was returned |
+| `7` | `unknown` — the result could not be classified reliably |
+| `8` | `transport_error` — a transport or deadline error occurred |
+| `9` | `run_failed` — the Actor Run ended unsuccessfully |
+| `10` | `creation_unknown` — the POST outcome is uncertain; reconcile before any retry |
+
+Argument and configuration failures are printed as a concise error. If writing the output fails
+after a Run, the summary includes the known Run and Dataset IDs before exit code `2` is returned.
+
 ## Native Bulk
 
 Pass one or more bare Reel URLs. They become one `bulkUrls` input and one Actor Run; this is not
@@ -121,7 +138,9 @@ when missing or invalid. An injected transport implements
 `request(method, path, body, timeoutMs, query)`.
 
 Each result has a stable object shape with mode/status, input identity, Run ID, Dataset ID, error,
-execution status, Build evidence, and raw output where applicable. `getTranscript()` exposes `text`, `segments`,
+Build evidence, and raw output where applicable. Transcript results expose their transcript
+`executionStatus`; Profile results expose the actual Apify terminal `runStatus` instead, because
+Profile metadata does not require transcript text. `getTranscript()` exposes `text`, `segments`,
 and `items`; `getTranscripts()` exposes per-input `results`, `extraResults`, and `counts`;
 `getProfilePosts()` exposes `posts`, each retaining `raw`. Profile has `success`, `actor_error`,
 `empty`, or `unknown` business status. Typed exceptions distinguish configuration/protocol
@@ -143,6 +162,26 @@ node examples/nodejs/batch-csv.mjs path/to/urls.csv --concurrency 2
 `--dry-run` validates every row and reports the possible Run count without reading credentials
 or creating Runs. Output files use unique names. A row error is retained while completed rows
 remain available. CSV Batch has no resume command.
+
+## Security and recovery
+
+- Never hard-code, commit, or print an Apify token. CLI examples load the repository-root `.env`
+  for local convenience; importing `client.mjs` does not load `.env`. The reusable API accepts an
+  explicit `token` or reads `APIFY_TOKEN` from the process environment.
+- The REST transport sends the token in an `Authorization: Bearer` header, not in the URL. Output
+  sanitization removes credential-like fields before persistence.
+- Generated result files and journals request mode `0600` on POSIX systems. On Windows, the
+  implementation uses the inherited file ACL; it does not configure or independently verify a
+  restrictive Windows ACL.
+- Actor Run creation POST is never retried, including after HTTP 429 or an ambiguous timeout.
+  `creation_unknown` requires reconciliation of the request context before any manual retry.
+- The default Build is `0.0.50`; the runner verifies the returned Build number and Build ID before
+  accepting Dataset results. `restartOnError=false` is explicitly sent for each new Run.
+- `APIFY_MAX_TOTAL_CHARGE_USD` is an optional per-Run charge cap. Setting
+  `APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD=1` makes a missing or invalid cap fail before Run creation.
+  The API can reject a cap, and this option is not an absolute account-level billing guarantee.
+- Native Bulk submits many URLs in one Run. CSV Batch creates one independent Run per valid row,
+  so its Run count and potential costs grow with the number of rows.
 
 ## Recovery and validation scope
 

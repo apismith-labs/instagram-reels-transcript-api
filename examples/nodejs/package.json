@@ -6,7 +6,8 @@
   "scripts": {
     "single": "node single-url.mjs",
     "batch": "node batch-csv.mjs",
-    "profile": "node profile.mjs"
+    "profile": "node profile.mjs",
+    "bulk": "node native-bulk.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

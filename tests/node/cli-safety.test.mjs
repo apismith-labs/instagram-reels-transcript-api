@@ -263,6 +263,9 @@ test('Profile CLI sends explicit Profile input and reports metadata without requ
       journal: new RunJournal(path.join(dir, 'runs.jsonl')), writeOutput: async () => path.join(dir, 'profile.json'), print: (line) => lines.push(line) });
     assert.equal(code, 0); assert.equal(transport.postCount, 1);
     assert.deepEqual(transport.requests[0].body, { usernames: ['alice'], resultsLimit: 1 });
-    assert.equal(JSON.parse(lines[0]).posts[0].type, 'Image');
+    assert.deepEqual(transport.requests[0].query, { restartOnError: false, build: CONTROLLED_BUILD_NUMBER });
+    const summary = JSON.parse(lines[0]);
+    assert.equal(summary.status, 'success'); assert.equal(summary.runStatus, 'SUCCEEDED');
+    assert.equal(Object.hasOwn(summary, 'executionStatus'), false); assert.equal(summary.posts[0].type, 'Image');
   } finally { await cleanup(dir); }
 });

@@ -62,8 +62,35 @@ test('Profile CLI parses explicit usernames and rejects no usernames before cred
   const transport = new FakeTransport([]); const lines = [];
   assert.equal(await profileMain(['--help'], { env: {}, transport, print: (line) => lines.push(line) }), 0);
   assert.match(lines[0], /Usage:/); assert.equal(transport.postCount, 0);
-  await assert.rejects(profileMain(['alice', '--results-limit', '0'], { env: { APIFY_TOKEN: 'synthetic' }, transport, loadEnv() {} }));
+  let loadEnvCalled = false;
+  const errors = [];
+  assert.equal(await profileMain(['alice', '--results-limit', '0'], { env: { APIFY_TOKEN: 'synthetic' }, transport,
+    loadEnv() { loadEnvCalled = true; }, error: (message) => errors.push(message) }), 2);
+  assert.equal(loadEnvCalled, false); assert.equal(errors.length, 1);
   assert.equal(transport.postCount, 0);
+});
+
+test('Profile CLI rejects every missing or invalid valued option before env loading or POST', async () => {
+  const invalidArgv = [
+    ['alice', '--only-posts-newer-than'],
+    ['alice', '--only-posts-newer-than', '--skip-pinned-posts'],
+    ['alice', '--only-posts-newer-than', ''],
+    ['alice', '--only-posts-newer-than', '2026-02-30'],
+    ['alice', '--results-limit'],
+    ['alice', '--results-limit', '--include-shares-count'],
+    ['--resume'],
+  ];
+  for (const argv of invalidArgv) {
+    let loadEnvCalled = false; const transport = new FakeTransport([]); const errors = [];
+    const code = await profileMain(argv, { env: { APIFY_TOKEN: 'synthetic-token' }, transport,
+      loadEnv: () => { loadEnvCalled = true; }, error: (message) => errors.push(message) });
+    assert.equal(code, 2, argv.join(' ')); assert.equal(loadEnvCalled, false); assert.equal(transport.postCount, 0);
+    assert.equal(errors.length, 1);
+  }
+  assert.deepEqual(parseProfileArgs(['alice', '--only-posts-newer-than', '2026-10-20']).runInput,
+    { usernames: ['alice'], onlyPostsNewerThan: '2026-10-20' });
+  assert.deepEqual(parseProfileArgs(['alice', '--only-posts-newer-than', '7 days']).runInput,
+    { usernames: ['alice'], onlyPostsNewerThan: '7 days' });
 });
 
 test('Profile client makes one safe Run and returns metadata without transcript fields', async () => {
@@ -75,6 +102,7 @@ test('Profile client makes one safe Run and returns metadata without transcript 
   assert.deepEqual(transport.requests[0].body, { usernames: ['alice'], resultsLimit: 1 });
   assert.deepEqual(transport.requests[0].query, { restartOnError: false, maxTotalChargeUsd: 0.3, build: CONTROLLED_BUILD_NUMBER });
   assert.equal(result.buildId, CONTROLLED_BUILD_ID); assert.equal(result.buildVerification, 'verified');
+  assert.equal(result.runStatus, 'SUCCEEDED'); assert.equal(Object.hasOwn(result, 'executionStatus'), false);
   assert.equal(result.posts[0].raw.extra, 'kept'); assert.equal(Object.hasOwn(result.posts[0].raw, 'text'), false);
 });
 
@@ -88,6 +116,7 @@ test('Profile client classifies empty, actor_error, and incomplete datasets dist
     }
     const result = await getProfilePosts('alice', baseOptions(transport));
     assert.equal(result.status, expected); assert.equal(result.datasetComplete, true);
+    if (expected === 'actor_error') assert.equal(result.posts[0].status, 'actor_error');
   }
 });
 
@@ -128,6 +157,14 @@ test('Profile business metadata with no text is independent from Transcript stat
   const transport = new FakeTransport(responseQueue([{ url: profileUrl, type: 'Image', ownerUsername: 'alice' }]));
   const result = await getProfilePosts('alice', baseOptions(transport));
   assert.equal(result.status, 'success'); assert.equal(result.posts[0].status, 'success');
+  assert.equal(result.runStatus, 'SUCCEEDED'); assert.notEqual(result.executionStatus, 'no_transcript');
+  assert.equal(Object.hasOwn(result, 'executionStatus'), false);
+});
+
+test('Transcript API retains its existing no_transcript status semantics', async () => {
+  const transport = new FakeTransport(responseQueue([{ title: 'metadata only' }]));
+  const result = await getTranscript('https://www.instagram.com/reel/synthetic/', baseOptions(transport));
+  assert.equal(result.status, 'no_transcript'); assert.equal(result.executionStatus, 'no_transcript');
 });
 
 test('POST outcome unknown is surfaced as a typed non-retryable error', async () => {

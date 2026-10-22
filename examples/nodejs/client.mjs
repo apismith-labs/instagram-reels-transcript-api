@@ -148,10 +148,10 @@ export async function getProfilePosts(usernames, options = {}) {
   if (base.status === 'run_failed') return { ...aggregateProfile([], [], false, runInput.usernames), mode: 'profile', status: 'run_failed',
     runId: base.runId ?? null, datasetId: base.datasetId ?? null, error: base.error || 'Actor Run failed',
     buildNumber: result.buildNumber, buildId: result.buildId, buildVerification: result.buildVerification,
-    executionStatus: base.status, datasetComplete: false, rawItems: base.rawItems || [] };
+    runStatus: base.runMetadata?.status ?? null, datasetComplete: false, rawItems: base.rawItems || [] };
   return { mode: 'profile', status: result.status, posts: result.posts || [], usernames: runInput.usernames,
     counts: result.counts || {}, runId: result.runId ?? null, datasetId: result.datasetId ?? null,
     error: result.error || null, buildNumber: result.buildNumber, buildId: result.buildId,
     buildVerification: result.buildVerification, datasetComplete: result.datasetComplete === true,
-    rawItems: result.rawItems || [], executionStatus: result.executionStatus ?? result.status };
+    rawItems: result.rawItems || [], runStatus: result.runMetadata?.status ?? null };
 }

@@ -46,10 +46,10 @@ Mode boundaries:
 | Mode | Example code available here |
 | --- | --- |
 | Single transcript | Yes — cURL, Python, Node.js, Java, Go, Rust |
-| Native bulk transcript | **No** — planned as V2.1 `B01` |
-| Profile posts | **No** — planned as V2.1 `P01` |
+| Native bulk transcript | Yes — Python, Node.js, Go, Java |
+| Profile posts | Yes — Python, Node.js, Go, Java |
 
-The table above describes the Actor's ability, not this repository's coverage. See
+The table above summarizes the currently implemented examples; Java has offline coverage but no Java-specific Live acceptance. See
 [batch-processing-guide.md](batch-processing-guide.md) for how the existing CSV examples differ
 from native bulk.
 
@@ -114,6 +114,12 @@ Additional notes:
   least one entry field" nor "no mixing" is enforced server-side.
 - `prefill` is form pre-filling, not a runtime default. Behaviour when a field is omitted is
   **unverified** for every optional field.
+
+## Java request and result mapping
+
+The Java client pins Build Number `0.0.50` and verifies Build ID `aJLRmMdQapLQRT4sJ`. It sends `build`, `restartOnError=false`, and the optional `maxTotalChargeUsd` in Run query parameters, not in Actor input. Single input uses `videoUrl` and adds `sessionid` only when explicitly configured. Native Bulk uses `bulkUrls`; Profile uses `usernames` with only the supplied optional filters. Java CSV accepts a `url` or `videoUrl` column and creates one separate Run per row only after `--execute`.
+
+Java retains each Dataset item as a Jackson `JsonNode`; the application result adds normalized status, transcript `text` and `segments` where applicable, while preserving the original `rawItems` and their JSON scalar types. Profile uses `ownerUsername` for attribution and does not require transcript fields. Java reads one Dataset page and reports it incomplete when the configured page limit is reached.
 
 ## Output
 

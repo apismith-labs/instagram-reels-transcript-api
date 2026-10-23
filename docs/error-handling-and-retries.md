@@ -1,8 +1,6 @@
 # Error handling and retries
 
-This document describes how the **Python and Node.js examples in this repository** classify
-results, retry requests, and recover a Run. It documents implemented behaviour only; anything not
-implemented is listed explicitly under [Not implemented](#not-implemented).
+This document compares the Python, Node.js, Go, and Java examples where their implementations differ. It documents implemented behaviour only; anything not implemented is listed explicitly under [Not implemented](#not-implemented).
 
 Two distinctions drive everything below:
 
@@ -135,8 +133,7 @@ Conditions and limits:
   records and malformed JSONL fail closed with exit `2`.
 - Resume re-uses the journal's `sourceUrl` and `datasetId`, polls the **existing** Run, and sends
   no Run-creation request.
-- Resume exists **only for the single-URL scripts**. The CSV batch scripts have no resume flag,
-  and there is no batch-level checkpoint or replay.
+- Python and Node.js expose Single URL Resume. Go and Java also support GET-only Native Bulk Resume when the exact Journal identity and inputs are supplied. CSV and Profile Resume are not implemented.
 - Resume is per-machine and per-file. There is no distributed lock, no cross-process de-duplication,
   and no guarantee that two resumptions of the same Run will not both run.
 
@@ -158,32 +155,17 @@ snake, kebab, and camel forms), and string values are scrubbed for common creden
 This reduces accidental leakage; it is not a substitute for treating raw Actor output as
 sensitive, and it does not inspect every possible encoding.
 
+## Java, Go, and Rust notes
+
+Go and Java now provide reusable clients and safer staged execution. Their creation POST is attempted at most once, and their built-in HTTP clients do not replay redirected POST requests. Java uses JDK `HttpClient.Redirect.NEVER`; it classifies a timeout or ambiguous POST response as `creation_unknown`, writes Journal `intent` before POST, and requires explicit `--execute` for CSV Runs (CSV defaults to a zero-Run plan). Java GET reads retry transient transport failures, HTTP 429, and 5xx responses up to four attempts within the overall deadline, respecting `Retry-After` when supplied. Java Resume is GET-only and supports Single URL and Native Bulk; Profile and CSV Resume are not implemented.
+
+Java uses the eight statuses listed above and Single exit codes 0, 2, 4, 5, 6, 7, 8, 9, and 10. Bulk adds 11/12/13 for partial, all-known-failed, and unknown aggregates. It reads one Dataset page (`limit=100`, `offset=0`); reaching the limit marks results incomplete and does not imply pagination support. `maxTotalChargeUsd` is a per-Run request option, not a final invoice guarantee. See the [Java guide](../examples/java/README.md) for mode-specific exit codes and configuration.
+
+Rust remains an experimental call reference and does not yet provide the same retry-safe staged client contract.
+
 ## Not implemented
 
-Do not assume these exist:
-
-- **Dataset pagination.** One page per GET; only the first page is read (an empty array is
-  rechecked twice on the same Dataset). Fine for the
-  single-URL flow, a real risk for large native-bulk results, which are not implemented here yet.
-- **Run-level limits.** No `maxItems`, `maxTotalChargeUsd`, or timeout is passed to the Actor
-  Run; only the client-side 15-minute deadline exists.
-- **Run cancellation.** Nothing cancels a Run on deadline expiry.
-- **Native bulk, Profile mode, batch resume, checkpoint replay.**
-- **Downstream integration.** Errors never trigger LLM calls or other downstream processing in
-  these examples, because nothing downstream exists.
-
-## Auxiliary languages
-
-Java, Go, and Rust keep simpler implementations and have **not** received this work. Known
-differences, as of the current code:
-
-- A record whose status is `actor_error` or `empty` is still counted as a success in their
-  progress counters, and their failure lists only contain thrown exceptions.
-- A failure part-way through the flow can restart the whole call — including the Run-creation
-  POST — which risks an additional billable Run.
-
-Their READMEs carry an experimental warning. Treat them as call references, not as
-production-ready clients.
+Across the repository examples, do not assume general Dataset pagination or Run cancellation when a client-side deadline expires. Java reads one Dataset page and marks a full page incomplete. Java does not implement Profile Resume, CSV Resume, or checkpoint replay. No example automatically starts downstream LLM or other processing after an error.
 
 ## Still unverified
 

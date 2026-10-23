@@ -6,12 +6,12 @@ this repository do today.
 
 | Approach | How many Actor Runs | Implemented here |
 | --- | --- | --- |
-| **CSV, one Run per URL** (`url` / `videoUrl` per row) | One Run per CSV row | Yes — Python, Node.js, and Go (Go requires explicit `--execute`) |
-| **Native bulk** (`bulkUrls`, many URLs in one Run) | One Run for many URLs | Yes — Python, Node.js, and Go |
+| **CSV, one Run per URL** (`url` / `videoUrl` per row) | One Run per CSV row | Yes — Python, Node.js, Go (requires explicit `--execute`), and Java (plan-only by default; requires `--execute`) |
+| **Native bulk** (`bulkUrls`, many URLs in one Run) | One Run for many URLs | Yes — Python, Node.js, Go, and Java |
 
 CSV Batch and Native Bulk are separate modes. CSV Batch creates one Run per non-empty CSV row;
 Native Bulk sends a `bulkUrls` array in one Run. See the [Python](../examples/python/README.md),
-[Node.js](../examples/nodejs/README.md), and [Go](../examples/go/README.md) guides.
+[Node.js](../examples/nodejs/README.md), [Go](../examples/go/README.md), and [Java](../examples/java/README.md) guides.
 
 Native bulk is also not automatically cheaper or faster — it changes how many Runs you start and
 how results are mapped back to inputs, and its real performance has not been measured here.
@@ -40,25 +40,25 @@ https://www.instagram.com/p/your_post_id/
 ### How the work is dispatched
 
 - Each row creates its own Actor Run with a single-URL input (`videoUrl`). Python/Node.js may add
-  their documented `sessionid` option; the Go CLI does not use it.
+  their documented `sessionid` option; the Go CLI does not use it. Java may add its explicitly configured `sessionid` only to the single-URL Actor input.
 - `MAX_CONCURRENCY` (default `3`) bounds how many Runs are in flight at once. Higher values mean
   more simultaneous billable Runs and more rate-limit exposure.
-- Both language examples run the rows in parallel; result order in the output files may not match
-  CSV order, which is why `rowId` exists.
-- Go executes rows serially and preserves input order.
+- Python and Node.js run rows in parallel; result order in their output files may not match CSV order, which is why `rowId` exists.
+- Go and Java execute rows serially and preserve input order.
 
 ### Commands
 
 ```bash
 python examples/python/batch_csv.py "sample-data/instagram-reel-urls.csv"
 node examples/nodejs/batch-csv.mjs "sample-data/instagram-reel-urls.csv"
+(cd examples/java && java -jar target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar csv ../../sample-data/instagram-reel-urls.csv --execute --require-charge-cap --max-total-charge-usd 0.10)
 (cd examples/go && go run ./cmd/batch-csv --dry-run ../../sample-data/instagram-reel-urls.csv)
+(cd examples/java && java -jar target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar csv ../../sample-data/instagram-reel-urls.csv)
 ```
 
 The CSV path is required for every command. There is no implicit sample-file fallback. Use
 `--dry-run` to validate the file and display the planned number of independent Runs without creating
-them. Go defaults to this zero-Run plan; `--execute` is required before it reads credentials and
-starts one independent Run per row.
+them. Go and Java default to a zero-Run plan; `--execute` is required before either CLI reads the token or starts one independent Run per row. Java also accepts `url` or `videoUrl` headers.
 
 ### Result statuses
 
@@ -94,8 +94,7 @@ result. Python stores failures in the result JSON rather than writing a separate
 - The Run ID of every row is written to the JSONL journal as soon as the Run is created, before
   polling and before the result file is written. The journal file is created with owner-only
   permissions (`0600`).
-- A Run is created **at most once** per row. If polling or the Dataset read fails afterwards, the
-  retry re-reads the same Run; it does not create a new one.
+- A Run is created **at most once** per row. If polling or the Dataset read fails afterwards, recovery reads the same Run; it does not create a new one. Java does not automatically retry creation POSTs.
 - If the POST outcome is unknown (timeout, dropped connection, unparsable 5xx body), the row is
   marked `creation_unknown` and no retry is attempted. Reconcile against your Apify run history
   first.
@@ -130,4 +129,4 @@ validation boundaries. Native Bulk is not claimed to be cheaper or faster here.
 
 - [Error handling and retries](error-handling-and-retries.md) — statuses, exit codes, retry rules.
 - [Input and output fields](input-output-fields.md) — per-mode fields and their unknowns.
-- [Python examples](../examples/python/README.md) · [Node.js examples](../examples/nodejs/README.md) · [Go examples](../examples/go/README.md)
+- [Python examples](../examples/python/README.md) · [Node.js examples](../examples/nodejs/README.md) · [Go examples](../examples/go/README.md) · [Java examples](../examples/java/README.md)

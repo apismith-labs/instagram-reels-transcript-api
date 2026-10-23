@@ -1,0 +1,105 @@
+name: Prepare release assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Full 40-character commit SHA on main to build and package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  java-release-assets:
+    name: Java 17 release assets / Ubuntu
+    runs-on: ubuntu-latest
+    env:
+      APIFY_TOKEN: ''
+      INSTAGRAM_SESSIONID: ''
+      APIFY_MAX_TOTAL_CHARGE_USD: ''
+      APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD: ''
+    defaults:
+      run:
+        working-directory: examples/java
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Validate release commit is on main
+        id: validate
+        shell: bash
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "${RELEASE_COMMIT}^{commit}"
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main
+          echo "sha=$RELEASE_COMMIT" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.validate.outputs.sha }}
+          path: source
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: source/examples/java/pom.xml
+      - name: Confirm no local credentials file
+        working-directory: source
+        run: test ! -e .env
+      - name: Test gate self-test
+        working-directory: source/examples/java
+        run: python3 scripts/run_offline_tests.py --self-test
+      - name: Run offline Java tests with count gate
+        working-directory: source/examples/java
+        run: python3 scripts/run_offline_tests.py
+      - name: Package thin and shaded JARs
+        working-directory: source/examples/java
+        run: mvn -B -DskipTests package
+      - name: Verify regression mutation detection
+        working-directory: source/examples/java
+        run: python3 scripts/mutation_check.py
+      - name: Verify external Java consumer
+        working-directory: source/examples/java
+        shell: bash
+        run: |
+          set -euo pipefail
+          shaded_jar="$GITHUB_WORKSPACE/source/examples/java/target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar"
+          consumer_dir="$(mktemp -d)"
+          trap 'rm -rf "$consumer_dir"' EXIT
+          mkdir -p "$consumer_dir/classes"
+          javac -cp "$shaded_jar" -d "$consumer_dir/classes" \
+            "$GITHUB_WORKSPACE/source/examples/java/ci-consumer/ExternalConsumer.java"
+          java -cp "$shaded_jar:$consumer_dir/classes" ExternalConsumer
+      - name: Smoke test CLI without credentials or network
+        working-directory: source/examples/java
+        shell: bash
+        run: |
+          set -euo pipefail
+          jar="target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar"
+          test "$(java -jar "$jar" --version)" = '0.1.0'
+          java -jar "$jar" --help
+      - name: Create versioned JAR and SHA-256 assets
+        working-directory: source/examples/java
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets="$RUNNER_TEMP/v0.10.0-assets"
+          mkdir -p "$assets"
+          cp target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar \
+            "$assets/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar"
+          cp RELEASE-QUICKSTART.md "$assets/JAVA-QUICKSTART.md"
+          (cd "$assets" && sha256sum instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar > SHA256SUMS.txt)
+          printf '%s\n' "Prepared assets for commit ${{ steps.validate.outputs.sha }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v0.10.0-release-assets-${{ steps.validate.outputs.sha }}
+          path: ${{ runner.temp }}/v0.10.0-assets/
+          if-no-files-found: error
+          retention-days: 14

@@ -13,6 +13,11 @@ java -jar target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar -
 
 The project is not published to Maven Central. Use the repository source directly or run `mvn install` to place the artifact in your local Maven repository for development. The shaded JAR can also be built as a local executable.
 
+The Java Maven project version (`0.1.0`) is independent of the root repository Release version. A
+release asset, when provided, names both the Java artifact and its version. See
+[`RELEASE-QUICKSTART.md`](RELEASE-QUICKSTART.md) for checksum verification and a credential-safe
+CLI smoke check.
+
 ## Reusable Java Client
 
 Imports are safe: constructing the client does not read environment variables, load `.env`, or make network requests. Supply the token explicitly. Each creation method creates at most one Actor Run; CSV creates one Run per valid row.

@@ -231,9 +231,41 @@ public final class TranscriptClient {
         Status execution=e.status()==Status.SUCCESS?Status.SUCCESS:e.status();AttributionVerification attr=unknown?AttributionVerification.UNKNOWN:AttributionVerification.VERIFIED;
         return new BulkResult(overall,execution,List.copyOf(rows),List.copyOf(extras),Map.copyOf(counts),e.runId(),e.datasetId(),e.complete(),items,attr,e.error(),e.stage());
     }
-    private ProfileResult classifyProfile(Execution e,List<String> usernames){if(e.status()==Status.RUN_FAILED)return new ProfileResult(ProfileStatus.RUN_FAILED,Status.RUN_FAILED,List.of(),usernames,e.runId(),e.datasetId(),false,e.error(),e.items());if(e.status()!=Status.SUCCESS)return new ProfileResult(ProfileStatus.UNKNOWN,e.status(),List.of(),usernames,e.runId(),e.datasetId(),false,e.error(),e.items());List<ProfilePost> posts=new ArrayList<>();boolean unknown=!e.complete(),actorError=false;for(JsonNode item:e.items()){if(!item.isObject()){unknown=true;continue;}JsonNode err=item.get("errMsg");if(err!=null&&!err.isNull()){if(!err.isTextual()){unknown=true;continue;}if(!err.asText().isBlank()){actorError=true;posts.add(new ProfilePost(text(item,"url"),text(item,"type"),text(item,"ownerUsername"),text(item,"caption"),item.get("timestamp"),text(item,"videoUrl"),item.get("videoDuration"),"actor_error",item,null));continue;}}
-            String owner=text(item,"ownerUsername");boolean ownerConflict=owner!=null&&usernames.stream().noneMatch(owner::equals);if(ownerConflict||owner==null&&usernames.size()>1){unknown=true;posts.add(new ProfilePost(text(item,"url"),text(item,"type"),owner,text(item,"caption"),item.get("timestamp"),text(item,"videoUrl"),item.get("videoDuration"),"unknown",item,"Profile owner could not be verified"));}else posts.add(new ProfilePost(text(item,"url"),text(item,"type"),owner,text(item,"caption"),item.get("timestamp"),text(item,"videoUrl"),item.get("videoDuration"),"success",item,null));}
-        ProfileStatus s=unknown?ProfileStatus.UNKNOWN:actorError?ProfileStatus.ACTOR_ERROR:posts.isEmpty()?ProfileStatus.EMPTY:ProfileStatus.SUCCESS;return new ProfileResult(s,Status.SUCCESS,List.copyOf(posts),usernames,e.runId(),e.datasetId(),e.complete(),unknown&&!e.complete()?"Dataset completeness is unknown":null,e.items());}
+    private ProfileResult classifyProfile(Execution e,List<String> usernames){
+        if(e.status()==Status.RUN_FAILED)return new ProfileResult(ProfileStatus.RUN_FAILED,Status.RUN_FAILED,List.of(),usernames,e.runId(),e.datasetId(),false,e.error(),e.items());
+        if(e.status()!=Status.SUCCESS)return new ProfileResult(ProfileStatus.UNKNOWN,e.status(),List.of(),usernames,e.runId(),e.datasetId(),false,e.error(),e.items());
+        List<ProfilePost> posts=new ArrayList<>();boolean unknown=!e.complete(),actorError=false;
+        for(JsonNode item:e.items()){
+            if(!item.isObject()){unknown=true;continue;}
+            JsonNode err=item.get("errMsg");
+            if(err!=null&&!err.isNull()){
+                if(!err.isTextual()){unknown=true;continue;}
+                if(!err.asText().isBlank()){
+                    actorError=true;
+                    posts.add(new ProfilePost(profileUrl(item),text(item,"type"),text(item,"ownerUsername"),text(item,"caption"),item.get("timestamp"),text(item,"videoUrl"),item.get("videoDuration"),"actor_error",item,JsonSupport.redact(err.asText())));
+                    continue;
+                }
+            }
+            String owner=text(item,"ownerUsername");
+            boolean ownerConflict=usernames.size()>1?(owner==null||usernames.stream().noneMatch(owner::equals)):(owner!=null&&!owner.equals(usernames.get(0)));
+            boolean recognizable=InputValidators.isValidProfilePostUrl(text(item,"url"))&&hasProfilePostMetadata(item);
+            if(ownerConflict||!recognizable){
+                unknown=true;
+                String error=ownerConflict?"Post owner is missing or does not match a requested account":"Dataset item lacks recognizable Profile post metadata";
+                posts.add(new ProfilePost(profileUrl(item),text(item,"type"),owner,text(item,"caption"),item.get("timestamp"),text(item,"videoUrl"),item.get("videoDuration"),"unknown",item,error));
+            }else posts.add(new ProfilePost(profileUrl(item),text(item,"type"),owner,text(item,"caption"),item.get("timestamp"),text(item,"videoUrl"),item.get("videoDuration"),"success",item,null));
+        }
+        ProfileStatus status=actorError?ProfileStatus.ACTOR_ERROR:!e.complete()||unknown?ProfileStatus.UNKNOWN:posts.isEmpty()?ProfileStatus.EMPTY:ProfileStatus.SUCCESS;
+        String error=status==ProfileStatus.ACTOR_ERROR?"One or more Profile items contain a non-empty errMsg":status==ProfileStatus.UNKNOWN?"Profile Dataset is incomplete or contains unrecognized/unattributed items":null;
+        return new ProfileResult(status,Status.SUCCESS,List.copyOf(posts),usernames,e.runId(),e.datasetId(),e.complete(),error,e.items());
+    }
+    private static boolean hasProfilePostMetadata(JsonNode item){
+        if(nonBlankText(item.get("type"))||nonBlankText(item.get("ownerUsername"))||nonBlankText(item.get("caption")))return true;
+        for(String key:List.of("id","pk","img"))if(nonBlankText(item.get(key)))return true;
+        JsonNode timestamp=item.get("timestamp");return timestamp!=null&&!timestamp.isNull()&&(!timestamp.isTextual()||!timestamp.asText().isEmpty());
+    }
+    private static String profileUrl(JsonNode item){String url=text(item,"url");return InputValidators.isValidProfilePostUrl(url)?url:null;}
+    private static boolean nonBlankText(JsonNode value){return value!=null&&value.isTextual()&&!value.asText().isBlank();}
     private static CsvRowResult csvError(CsvRow r,Status s,TranscriptClientException ex){return new CsvRowResult(r.rowNumber(),r.url(),s,ex.runId(),ex.datasetId(),null,List.of(),0,List.of(),null,JsonSupport.redact(ex.getMessage()));}
     private static List<JsonNode> flattenRaw(List<CsvRowResult> rows){List<JsonNode> out=new ArrayList<>();for(CsvRowResult r:rows)out.addAll(r.rawItems());return List.copyOf(out);}
     private static String csvStatus(List<CsvRowResult> rows,boolean stopped){if(stopped)return "stopped_unknown";if(rows.isEmpty())return "empty";long success=rows.stream().filter(r->r.status()==Status.SUCCESS).count();if(success==rows.size())return "all_success";if(success>0)return "partial_success";return "all_failed";}

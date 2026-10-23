@@ -49,7 +49,7 @@ Mode boundaries:
 | Native bulk transcript | Yes — Python, Node.js, Go, Java |
 | Profile posts | Yes — Python, Node.js, Go, Java |
 
-The table above summarizes the currently implemented examples; Java has offline coverage but no Java-specific Live acceptance. See
+The table above summarizes the currently implemented examples. Java completed controlled Live checks for Single URL, three-URL Native Bulk, one-row CSV, and GET-only Single Resume; its three-account Profile check was PARTIAL (19 success, one owner attribution unknown, one Actor error). See
 [batch-processing-guide.md](batch-processing-guide.md) for how the existing CSV examples differ
 from native bulk.
 

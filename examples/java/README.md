@@ -99,11 +99,11 @@ The CSV file must contain a `url` or `videoUrl` column. Parsing and URL validati
 java -jar target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar csv ../../sample-data/instagram-reel-urls.csv
 ```
 
-The plan reports valid rows, maximum possible Runs, serial concurrency, Build, and any configured per-Run cap estimate. Each non-empty valid row would create its own independent Run. To opt into those billable requests, repeat the command with `--execute` and a required cap:
+The plan reports valid rows, maximum possible Runs, serial concurrency, Build, and any configured per-Run cap estimate. Each non-empty valid row would create its own independent Run. To opt into those billable requests, repeat the command with `--execute` and a positive cap supplied by `--max-total-charge-usd` or `APIFY_MAX_TOTAL_CHARGE_USD`; without one, execution is rejected before token access or any POST:
 
 ```sh
 java -jar target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar csv \
-  ../../sample-data/instagram-reel-urls.csv --execute --require-charge-cap --max-total-charge-usd 0.10
+  ../../sample-data/instagram-reel-urls.csv --execute --max-total-charge-usd 0.10
 ```
 
 Rows execute serially. A Journal write failure or unknown creation outcome stops later rows. Existing results are never overwritten; result JSON files use unique names.
@@ -289,4 +289,16 @@ The client does not hard-code or load credentials. The built-in transport disabl
 
 ## Validation and live acceptance boundary
 
-The Java SDK and CLI are validated with offline Fake Transport tests using synthetic Actor-shaped items. Java has **not** been live-verified. The `errMsg=""` success behavior follows the Actor item shape observed by the other language implementations and the repository's existing live evidence, not a Java Live run. Before using Java with billable traffic, plan separate controlled Live checks for Single URL, three-URL Native Bulk, one-account Profile, one-row CSV, and GET-only Bulk Resume. Each new Run should have its own approved `$0.10` cap and `restartOnError=false`; those checks are not part of this implementation batch.
+The Java SDK and CLI have offline Fake Transport coverage and completed these controlled Build `0.0.50` Live checks:
+
+| Stage | Result | Scope |
+| --- | --- | --- |
+| L1 Single URL | PASS | One URL returned transcript text and segments. |
+| L2 Native Bulk | PASS | Three URLs in one Run. |
+| L3 Profile | PARTIAL | Three accounts: 19 posts succeeded, one post's owner attribution could not be verified, and `theownerswitch` returned Actor error `crawed empty`. |
+| L4 CSV | PASS | One CSV row. |
+| L5 Single Resume | PASS | GET-only resume of the L1 Run; no new Run was created. |
+
+The L3 results reflect the Actor's original items. Java's contract fixes change their classification and error visibility, not the source Actor data. Profile mode returns post metadata, not transcripts. No final server-side billed amount has been verified.
+
+These are narrow acceptance checks, not evidence of broad production reliability. Multi-row CSV Live, mixed-failure Bulk Live, 100-item Dataset boundaries, and real recovery from an ambiguous Run-creation outcome remain unverified. The `errMsg=""` success behavior is covered by offline tests and matches the observed Actor item contract.

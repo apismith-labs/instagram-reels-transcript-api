@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from typing import Callable
 
 # Keep equal to the current full Surefire execution count (including parameterized cases).
-MINIMUM_TEST_EXECUTIONS = 126
+MINIMUM_TEST_EXECUTIONS = 138
 
 SAMPLE = b'''<testsuite name="sample" tests="3" failures="0" errors="0" skipped="0">
   <testcase classname="sample" name="one"/><testcase classname="sample" name="two"/><testcase classname="sample" name="three"/>
@@ -165,7 +165,7 @@ def self_test() -> int:
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             deleted_class_failed = execute_gate(module, ["fake-mvn", "test"], runner=deleted_class_runner) == 1
-        checks.append(deleted_class_failed and "115 (minimum 126)" in out.getvalue())
+        checks.append(deleted_class_failed and f"115 (minimum {MINIMUM_TEST_EXECUTIONS})" in out.getvalue())
 
         # Maven failure cannot be hidden by a pre-existing passing report.
         synthetic_report(reports, MINIMUM_TEST_EXECUTIONS)
@@ -215,7 +215,7 @@ def self_test() -> int:
         checks.append(symlink_rejected and not started)
 
     if all(checks):
-        print("Java test gate self-test: PASS (validation, stale reports, deleted-class threshold, Maven failure, cleanup failure, fresh 126, symlink rejection)")
+        print(f"Java test gate self-test: PASS (validation, stale reports, deleted-class threshold, Maven failure, cleanup failure, fresh {MINIMUM_TEST_EXECUTIONS}, symlink rejection)")
         return 0
     print(f"Java test gate self-test: FAIL ({sum(checks)}/{len(checks)} checks passed)", file=sys.stderr)
     return 1

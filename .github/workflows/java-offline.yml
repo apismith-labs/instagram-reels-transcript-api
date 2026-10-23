@@ -31,5 +31,16 @@ jobs:
         run: python3 scripts/run_offline_tests.py
       - name: Package (thin + shaded)
         run: mvn -B -q -DskipTests package
+      - name: Verify external Java consumer
+        shell: bash
+        run: |
+          set -eu
+          shaded_jar="$GITHUB_WORKSPACE/examples/java/target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar"
+          consumer_dir="$(mktemp -d)"
+          trap 'rm -rf "$consumer_dir"' EXIT
+          mkdir -p "$consumer_dir/classes"
+          javac -cp "$shaded_jar" -d "$consumer_dir/classes" \
+            "$GITHUB_WORKSPACE/examples/java/ci-consumer/ExternalConsumer.java"
+          java -cp "$shaded_jar:$consumer_dir/classes" ExternalConsumer
       - name: Verify regression mutation detection
         run: python3 scripts/mutation_check.py

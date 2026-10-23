@@ -60,8 +60,8 @@ and [CSV Batch](examples/python/README.md#run-csv-batch).
 - [cURL](examples/curl/README.md) — synchronous single URL.
 - [Node.js](examples/nodejs/README.md) — Single URL, Native Bulk, Profile metadata, CSV Batch, and reusable client functions.
 - [Go](examples/go/README.md) — reusable Go 1.22+ Client, Single URL, Native Bulk, Profile metadata, safe CSV Batch, and journaled Single/Bulk Resume.
-- [Java](examples/java/README.md) and [Rust](examples/rust/README.md) — experimental API-call
-  references; see each guide's reliability limitations.
+- [Java](examples/java/README.md) — Java 17 SDK and CLI for Single URL, Native Bulk, Profile metadata, CSV Batch, and single/bulk Resume. Controlled Java Live checks cover L1–L5; Profile was PARTIAL. It is not published to Maven Central.
+- [Rust](examples/rust/README.md) — experimental API-call reference; see its guide for reliability limitations.
 - [All examples](#supported-integration-examples) and [field reference](docs/input-output-fields.md).
 
 Node.js examples require Node 18+. The Go 1.22+ module provides a reusable Client, Single URL,
@@ -74,8 +74,7 @@ items returned 15, 14, and 12 segments; Profile returned one post's metadata; an
 returned a transcript with 15 segments. These limited checks do not establish broad production
 reliability or success for arbitrary inputs. Charge caps are per-Run request controls, not a
 guarantee of the final account bill. Go Single Resume has offline coverage but no dedicated Live
-acceptance. Java and Rust remain experimental and have not received the same business-status and
-retry-safety work as Python, Node.js, and Go.
+acceptance. Java completed controlled Build 0.0.50 checks: Single URL, three-input Native Bulk, one-row CSV, and GET-only Single Resume passed; three-account Profile was PARTIAL (19 successes, one owner attribution unknown, one Actor error). These results are narrow and do not establish production-scale reliability or final billed cost. Rust remains experimental.
 
 ## Example Output
 
@@ -123,12 +122,12 @@ unless you have verified them yourself.
 | Python | Yes | Yes | Yes | Yes | [examples/python/](examples/python/) |
 | Node.js | Yes | Yes | Yes* | Yes | [examples/nodejs/](examples/nodejs/) |
 | cURL | Yes | No | No | No | [examples/curl/](examples/curl/) |
-| Java | Yes | No | No | Yes | [examples/java/](examples/java/) |
+| Java | Yes | Yes | Yes | Yes† | [examples/java/](examples/java/) |
 | Go | Yes* | Yes | Yes | Yes* | [examples/go/](examples/go/) |
 | Rust | Yes | No | No | Yes | [examples/rust/](examples/rust/) |
 
 `*` Node.js Profile is implemented and covered by offline tests; it has no recorded live Actor
-acceptance yet.
+acceptance yet. `†` Java CSV defaults to a zero-Run plan; its one-row Live check passed, and `--execute` requires a positive per-Run cap.
 
 `*` Go has controlled Live acceptance on Build 0.0.50 for Single URL, one three-input Native Bulk
 run, a GET-only Resume of that Bulk run, one single-account Profile query (`resultsLimit=1`), CSV
@@ -136,14 +135,11 @@ dry-run, and one CSV row. The Go CSV result records its row outcome but does not
 `datasetComplete`; this acceptance therefore does not independently establish CSV Dataset
 completeness. Single Resume is offline-tested only. These checks do not establish arbitrary batch
 sizes, multi-account Profile attribution, multi-row CSV behavior, generalized pagination, or
-large-scale reliability. Go does not yet provide every Python/Node.js capability. Java and Rust
-remain experimental: a record containing a business
-error may still be counted as success, and a failure mid-flow can restart a call and create another
-billable Run. Details are in each language README and
+large-scale reliability. Go does not yet provide every Python/Node.js capability. Java's L1 Single URL, L2 three-URL Native Bulk, L4 one-row CSV, and L5 GET-only Single Resume checks passed. L3 three-account Profile was PARTIAL: 19 posts succeeded, one post's owner attribution could not be verified, and one account returned `crawed empty`; Java preserves those Actor items and does not change their source data. Mixed-failure Bulk, multi-row CSV, 100-item Dataset boundaries, and real creation-unknown recovery remain unverified. Java CSV `--execute` now requires a positive per-Run cap. Rust remains experimental and may count business errors as success or restart a failed flow with another billable Run. Details are in each language README and
 [docs/error-handling-and-retries.md](docs/error-handling-and-retries.md).
 
 CSV Batch is **not** the Actor's Native Bulk mode: each CSV row starts an independent Run. Python,
-Node.js, and Go also have Native Bulk examples that send `bulkUrls` in one Run. See
+Node.js, Go, and Java also have Native Bulk examples that send `bulkUrls` in one Run. See
 [docs/batch-processing-guide.md](docs/batch-processing-guide.md) for the distinction.
 
 ## Actor Capabilities
@@ -153,9 +149,9 @@ The Actor exposes three input modes. Choose exactly one per Run; do not mix them
 | Mode | Entry field | What it produces | Implemented examples |
 | --- | --- | --- | --- |
 | Single transcript | `videoUrl` | Transcript result for one public video/post URL | Python, Node.js, cURL, Java, Go, Rust |
-| Native bulk transcript | `bulkUrls` | Python and Go each have one controlled three-URL Build `0.0.50` Live acceptance; arbitrary cardinality and mixed failures remain unverified | Python, Node.js, Go |
-| Profile posts | `usernames` | Python has one Build `0.0.50` Live acceptance for one account; Go has one single-account, one-post-limit Live acceptance; Node.js is offline-tested | Python, Node.js, Go |
-| CSV Batch | CSV `url` / `videoUrl` column | One independent Run per non-empty row; Go runs serially and requires explicit `--execute`; one Go row has Live acceptance | Python, Node.js, Go, Java, Rust |
+| Native bulk transcript | `bulkUrls` | Python and Go each have one controlled three-URL Build `0.0.50` Live acceptance; arbitrary cardinality and mixed failures remain unverified | Python, Node.js, Go, Java |
+| Profile posts | `usernames` | Python has one Build `0.0.50` Live acceptance for one account; Go has one single-account, one-post-limit Live acceptance; Java's three-account L3 check was PARTIAL (19 success, one owner unknown, one Actor error); Node.js has no Live acceptance | Python, Node.js, Go, Java |
+| CSV Batch | CSV `url` / `videoUrl` column | One independent Run per non-empty row; Go runs serially and requires explicit `--execute`; Java defaults to a zero-Run plan and requires a positive per-Run cap for `--execute`; Java and Go each passed one-row Live checks | Python, Node.js, Go, Java, Rust |
 
 The Python/Node.js Single URL runners each have one recorded real acceptance on Build `0.0.50`,
 limited to the TC01 URL subset. Python Native Bulk passed one real Run on Build `0.0.50` for the
@@ -166,7 +162,10 @@ date filtering, and pinned-post behavior remain unverified. Node.js Native Bulk 
 successful live Run. Node.js Profile is implemented but has not had a real Actor acceptance.
 Go Native Bulk has one three-URL Live acceptance and a Resume check against that same Run; Go
 Profile has one single-account, one-post-limit acceptance; Go CSV has a zero-Run dry-run and one
-row-level Live acceptance. These are narrow checks, not general coverage. The Go CSV aggregate
+row-level Live acceptance. Java L1–L5 covered Single URL, Native Bulk (3 URLs), Profile (3 accounts),
+one-row CSV, and GET-only Single Resume. L3 returned 19 successes, one owner attribution that
+could not be verified, and one Actor error (`crawed empty`), so it remains PARTIAL. These are narrow
+checks, not general coverage. The Go CSV aggregate
 does not expose `datasetComplete`, so Dataset completeness was not independently asserted from
 that result. Python CSV Batch remains offline-only: `--dry-run` is validated, but real
 per-row CSV Runs have not been tested. Node.js CSV Batch has no live validation recorded. These
@@ -256,7 +255,7 @@ repository, and its availability has not been verified here.
 │   ├── curl/                 # synchronous single-URL shell example
 │   ├── python/               # single URL, CSV batch, staged reliable runner
 │   ├── nodejs/               # single URL, CSV batch, staged reliable runner
-│   ├── java/                 # experimental call references
+│   ├── java/                 # Java 17 SDK, CLI, and offline tests
 │   ├── go/
 │   └── rust/
 ├── tests/                    # offline tests: synthetic fixtures + mock transport

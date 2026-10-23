@@ -38,3 +38,13 @@ Use it alongside the runnable examples before moving from local validation to pr
 - Long batch jobs can resume or be safely re-run.
 - Output files are written outside version control.
 - Error samples are reviewed before expanding volume.
+
+## Java SDK and CLI
+
+- Use Java 17 and build the local source-integrated project with `mvn -B verify`; it is not published to Maven Central.
+- Supply `APIFY_TOKEN` through the process environment or explicitly to `ClientConfig`; Java does not load `.env` or Keychain credentials.
+- Pin Build `0.0.50` / ID `aJLRmMdQapLQRT4sJ`; require a positive per-Run `maxTotalChargeUsd` where policy requires it, and treat the cap as a request guard rather than an invoice guarantee.
+- Review the append-only JSONL Journal and unique result files under `sample-output/generated/`; intent is persisted before a create POST, and POSIX files use owner-only permissions.
+- Treat `creation_unknown` as a reconciliation state. Never automatically repeat the create request. Single and Native Bulk Resume use GET only and require matching Journal identity/input.
+- CSV is plan-only by default. Confirm the row count, per-Run cap, and maximum possible Runs before explicit `--execute`; a Journal failure or unknown POST stops later rows.
+- Java completed one controlled Build `0.0.50` Live check each for Single URL, three-URL Native Bulk, one-row CSV, and GET-only Single Resume; its three-account Profile check was PARTIAL (19 success, one owner attribution unknown, one Actor error). Treat these as narrow acceptance evidence, not broad production reliability or final-charge verification. Multi-row CSV, mixed-failure Bulk, 100-item Dataset boundaries, and real `creation_unknown` recovery remain unverified. Java CSV `--execute` requires a positive per-Run cap.

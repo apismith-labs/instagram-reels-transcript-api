@@ -1,20 +1,25 @@
 # Go Client and Examples
 
 This Go 1.22 module provides a reusable `transcriptapi` Client plus Single URL, Native Bulk,
-Profile, and CSV Batch examples for `apple_yang/instagram-transcripts-scraper`. The public API
-uses the pinned Build `0.0.50` / `aJLRmMdQapLQRT4sJ`. Go now covers these modes, while Resume is
-available for journaled Single URL and Native Bulk Runs; it does not yet match every Python or
-Node.js feature.
+Profile, and CSV Batch examples for `apple_yang/instagram-transcripts-scraper`. Live-verified
+examples use the controlled Build `0.0.50` / `aJLRmMdQapLQRT4sJ`; this is a pinned, tested Build,
+not a claim that it is the Actor's latest Build. Go implements the modes documented here but is not
+a complete feature-for-feature replacement for the Python or Node.js examples.
 
 ## Live verification scope
 
-Go Single URL completed one controlled Live verification with Build `0.0.50`. The Run succeeded,
-returned transcript text and 15 timestamped segments, and verified the expected Build and URL
-attribution. Apify Run metadata confirmed the requested `$0.10` charge cap and
-`restartOnError=false`; reported usage was `$0.0055`. This single test is not a large-scale
-production reliability guarantee, does not establish that every video can be transcribed, and the
-charge cap is not an absolute final-bill limit. Native Bulk, Profile, and CSV Batch do not have a
-new Go Live acceptance in this release.
+Controlled Go Live checks on Build `0.0.50` covered Single URL, one three-URL Native Bulk Run and a
+Resume of that same Run, one Profile account with `resultsLimit=1`, CSV dry-run, and one CSV row.
+Single URL returned a transcript with 15 segments; the Bulk inputs returned 15, 14, and 12
+segments, and GET-only Resume returned the same Run and Dataset; Profile returned one post's
+metadata; the CSV row returned a transcript with 15 segments. The Single, Bulk, Profile, and CSV
+Live requests used a `$0.10` per-Run cap and `restartOnError=false` where recorded. The reported
+Single Run usage was `$0.0055`; usage for the new Bulk, Profile, and CSV Runs was not independently
+verified in this local evidence. The CSV row result does not expose `datasetComplete`, so CSV
+Dataset completeness was not independently established from that JSON. These are narrow,
+controlled checks, not a production reliability guarantee, and a Run cap is not an absolute final
+bill limit. Single Resume has offline test coverage; dedicated Single Resume Live acceptance was
+not performed.
 
 ## Safety behavior
 
@@ -165,11 +170,19 @@ v0.8.0 module can be installed with:
 go get github.com/apismith-labs/instagram-reels-transcript-api/examples/go@v0.8.0
 ```
 
-That external installation and compilation were verified for v0.8.0 with Go 1.27.3. The parity
-features described above are development-branch work and are not part of the published v0.8.0
-module. For a checkout under development, use a local `replace` directive rather than claiming the
-unreleased APIs are available from v0.8.0. Future nested-module tags follow
-`examples/go/vX.Y.Z` and must point to the same commit as the corresponding root release tag.
+That external installation and compilation were verified for v0.8.0 with Go 1.27.3. The v0.9.0
+release candidate adds the features and Live evidence described above; its versioned install
+command becomes available only after the root and nested-module v0.9.0 tags are published and
+verified. The v0.8.0 root repository release tag is `v0.8.0`, while its nested Go Module tag is
+`examples/go/v0.8.0`; the command above resolves the Module tag, not the root tag. For the planned
+v0.9.0 release, the post-publication install command will be:
+
+```sh
+go get github.com/apismith-labs/instagram-reels-transcript-api/examples/go@v0.9.0
+```
+
+The nested Go Module tag follows `examples/go/vX.Y.Z` and must point to the same commit as the
+corresponding root release tag. Do not use a local `replace` when validating a published version.
 
 ## Result states and exit codes
 
@@ -187,7 +200,10 @@ Place CLI options before positional usernames or URLs. Explicitly passing an emp
 filter is rejected. CSV skips physically empty rows; a non-empty row with a blank URL is rejected
 before execution. A stopped CSV result includes `plannedRows` and `unattemptedRows`.
 
-Dataset reads are single-page only. Native Bulk, Profile, and CSV Batch have offline coverage but
-no new Go Live acceptance in this release. Go does not yet implement every Python or Node.js API,
-parallel CSV execution, generalized pagination, Profile/CSV Resume, or Actor-side capabilities not
-exposed by the current examples.
+Dataset reads are single-page only. The CSV aggregate exposes row outcomes but does not expose
+`datasetComplete`; consult the available per-Run journal and result evidence without treating the
+CSV summary as proof of complete pagination. Go does not yet implement every Python or Node.js
+API, parallel CSV execution, generalized pagination, Profile/CSV Resume, or Actor-side capabilities
+not exposed by the current examples. The controlled Live checks do not cover arbitrary Bulk sizes,
+mixed Bulk failures, multiple Profile accounts, multi-row CSV execution, or broad production
+reliability.

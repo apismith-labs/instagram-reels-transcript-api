@@ -64,15 +64,18 @@ and [CSV Batch](examples/python/README.md#run-csv-batch).
   references; see each guide's reliability limitations.
 - [All examples](#supported-integration-examples) and [field reference](docs/input-output-fields.md).
 
-Node.js examples require Node 18+. Go now includes an offline-tested reusable Client and the
-Single URL, Native Bulk, Profile, CSV Batch, and Single/Bulk Resume examples. One controlled Go
-Single URL Live verification using Build 0.0.50 succeeded, returned transcript text and 15
-timestamped segments, and verified the expected Build and URL attribution. The Apify Run metadata
-confirmed the requested $0.10 charge cap and `restartOnError=false`. This single test is not a
-broad production reliability guarantee, and the cap does not guarantee the final account bill.
-Go's new Bulk, Profile, and CSV modes have no new Live acceptance in this release. Java and Rust
-remain experimental and have not received the same business-status and retry-safety work as Python,
-Node.js, and Go.
+Node.js examples require Node 18+. The Go 1.22+ module provides a reusable Client, Single URL,
+Native Bulk, Profile metadata, CSV Batch, and journal-backed Single/Bulk Resume. Go Full Feature
+Parity describes the modes implemented in this repository; it does not mean every Python or
+Node.js capability is available in Go. Controlled Go Live checks on Build 0.0.50 covered Single
+URL, a three-URL Native Bulk run and its GET-only Resume, one Profile account with a one-post limit,
+CSV dry-run, and one CSV row. Single URL returned transcript text and 15 segments; the three Bulk
+items returned 15, 14, and 12 segments; Profile returned one post's metadata; and the CSV row
+returned a transcript with 15 segments. These limited checks do not establish broad production
+reliability or success for arbitrary inputs. Charge caps are per-Run request controls, not a
+guarantee of the final account bill. Go Single Resume has offline coverage but no dedicated Live
+acceptance. Java and Rust remain experimental and have not received the same business-status and
+retry-safety work as Python, Node.js, and Go.
 
 ## Example Output
 
@@ -127,11 +130,14 @@ unless you have verified them yourself.
 `*` Node.js Profile is implemented and covered by offline tests; it has no recorded live Actor
 acceptance yet.
 
-`*` Go Single URL has one controlled Live acceptance on Build 0.0.50; this does not establish
-success for all videos or large-scale reliability. The Go Native Bulk, Profile, and CSV
-implementations have offline coverage but no new Live acceptance in this release. Go Resume is
-limited to exact-input, Journal-backed Single and Native Bulk recovery. Go does not yet provide
-every Python/Node.js capability. Java and Rust remain experimental: a record containing a business
+`*` Go has controlled Live acceptance on Build 0.0.50 for Single URL, one three-input Native Bulk
+run, a GET-only Resume of that Bulk run, one single-account Profile query (`resultsLimit=1`), CSV
+dry-run, and one CSV row. The Go CSV result records its row outcome but does not expose
+`datasetComplete`; this acceptance therefore does not independently establish CSV Dataset
+completeness. Single Resume is offline-tested only. These checks do not establish arbitrary batch
+sizes, multi-account Profile attribution, multi-row CSV behavior, generalized pagination, or
+large-scale reliability. Go does not yet provide every Python/Node.js capability. Java and Rust
+remain experimental: a record containing a business
 error may still be counted as success, and a failure mid-flow can restart a call and create another
 billable Run. Details are in each language README and
 [docs/error-handling-and-retries.md](docs/error-handling-and-retries.md).
@@ -147,9 +153,9 @@ The Actor exposes three input modes. Choose exactly one per Run; do not mix them
 | Mode | Entry field | What it produces | Implemented examples |
 | --- | --- | --- | --- |
 | Single transcript | `videoUrl` | Transcript result for one public video/post URL | Python, Node.js, cURL, Java, Go, Rust |
-| Native bulk transcript | `bulkUrls` | One Build `0.0.50` live acceptance passed for the three TC02 URLs; arbitrary cardinality and mixed failures remain unverified | Python, Node.js, Go |
-| Profile posts | `usernames` | Python has one Build `0.0.50` live acceptance for one account; Node.js is offline-tested; Go has no new Live acceptance | Python, Node.js, Go |
-| CSV Batch | CSV `url` / `videoUrl` column | One independent Run per non-empty row; Go runs serially and requires explicit `--execute` | Python, Node.js, Go, Java, Rust |
+| Native bulk transcript | `bulkUrls` | Python and Go each have one controlled three-URL Build `0.0.50` Live acceptance; arbitrary cardinality and mixed failures remain unverified | Python, Node.js, Go |
+| Profile posts | `usernames` | Python has one Build `0.0.50` Live acceptance for one account; Go has one single-account, one-post-limit Live acceptance; Node.js is offline-tested | Python, Node.js, Go |
+| CSV Batch | CSV `url` / `videoUrl` column | One independent Run per non-empty row; Go runs serially and requires explicit `--execute`; one Go row has Live acceptance | Python, Node.js, Go, Java, Rust |
 
 The Python/Node.js Single URL runners each have one recorded real acceptance on Build `0.0.50`,
 limited to the TC01 URL subset. Python Native Bulk passed one real Run on Build `0.0.50` for the
@@ -158,8 +164,11 @@ success/failure results. Python Profile passed one real Run on Build `0.0.50` fo
 `resultsLimit=1`, returning one post metadata item; the full TC03 input, multi-account attribution,
 date filtering, and pinned-post behavior remain unverified. Node.js Native Bulk also has a recorded
 successful live Run. Node.js Profile is implemented but has not had a real Actor acceptance.
-Go's Native Bulk, Profile, and CSV implementations have only offline validation in this release.
-Python CSV Batch remains offline-only: `--dry-run` is validated, but real
+Go Native Bulk has one three-URL Live acceptance and a Resume check against that same Run; Go
+Profile has one single-account, one-post-limit acceptance; Go CSV has a zero-Run dry-run and one
+row-level Live acceptance. These are narrow checks, not general coverage. The Go CSV aggregate
+does not expose `datasetComplete`, so Dataset completeness was not independently asserted from
+that result. Python CSV Batch remains offline-only: `--dry-run` is validated, but real
 per-row CSV Runs have not been tested. Node.js CSV Batch has no live validation recorded. These
 narrow results do not establish compatibility for other inputs or Builds.
 

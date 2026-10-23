@@ -18,13 +18,14 @@ public final class JsonSupport {
             .configure(JsonParser.Feature.STRICT_DUPLICATE_DETECTION,true);
     private static final Set<String> SECRET_KEYS=Set.of("token","sessionid","cookie","authorization","password","secret","accesstoken","refreshtoken","apikey");
     private static final Set<String> DIAGNOSTIC_KEYS=Set.of("error","exception","diagnostic","fatal","stage");
+    private static final Set<String> RAW_DATA_KEYS=Set.of("rawitems","raw","items","item");
     private static final Pattern SECRET_TEXT=Pattern.compile("(?i)(?:(authorization\\s*[=:]\\s*)?(bearer\\s+)[A-Za-z0-9._~+/-]+=*|((?:token|sessionid|authorization|cookie|password|api[_-]?key)\\s*[=:]\\s*[\\\"']?)[^\\s,;&\\\"']+)");
     private JsonSupport(){}
     /** Removes known secret-bearing fields while preserving ordinary business text verbatim. */
     public static JsonNode sanitize(JsonNode input){return sanitize(input,false,false);}
-    /** Output serialization also redacts diagnostics, while preserving raw Actor data text. */
+    /** Output serialization redacts diagnostics and recognized credentials in raw Actor text. */
     public static JsonNode sanitizeForOutput(JsonNode input){return sanitize(input,false,true);}
-    private static JsonNode sanitize(JsonNode input,boolean rawActorData,boolean redactDiagnostics){if(input==null)return null;if(input.isObject()){var out=MAPPER.createObjectNode();Iterator<Map.Entry<String,JsonNode>> it=input.fields();while(it.hasNext()){var e=it.next();String key=normalize(e.getKey());if(SECRET_KEYS.contains(key))continue;JsonNode value=e.getValue();boolean raw=rawActorData||"rawitems".equals(key);if(redactDiagnostics&&!raw&&DIAGNOSTIC_KEYS.contains(key)&&value!=null&&value.isTextual())out.set(e.getKey(),MAPPER.getNodeFactory().textNode(safeError(value.asText())));else out.set(e.getKey(),sanitize(value,raw,redactDiagnostics));}return out;}if(input.isArray()){var out=MAPPER.createArrayNode();for(JsonNode n:input)out.add(sanitize(n,rawActorData,redactDiagnostics));return out;}return input.deepCopy();}
+    private static JsonNode sanitize(JsonNode input,boolean rawActorData,boolean redactDiagnostics){if(input==null)return null;if(input.isObject()){var out=MAPPER.createObjectNode();Iterator<Map.Entry<String,JsonNode>> it=input.fields();while(it.hasNext()){var e=it.next();String key=normalize(e.getKey());if(SECRET_KEYS.contains(key))continue;JsonNode value=e.getValue();boolean raw=rawActorData||RAW_DATA_KEYS.contains(key);if(redactDiagnostics&&!rawActorData&&!raw&&DIAGNOSTIC_KEYS.contains(key)&&value!=null&&value.isTextual())out.set(e.getKey(),MAPPER.getNodeFactory().textNode(safeError(value.asText())));else out.set(e.getKey(),sanitize(value,raw,redactDiagnostics));}return out;}if(input.isArray()){var out=MAPPER.createArrayNode();for(JsonNode n:input)out.add(sanitize(n,rawActorData,redactDiagnostics));return out;}if(redactDiagnostics&&input.isTextual())return MAPPER.getNodeFactory().textNode(redact(input.asText()));return input.deepCopy();}
     public static String redact(String value){
         if(value==null)return null;
         var matcher=SECRET_TEXT.matcher(value);var out=new StringBuffer();

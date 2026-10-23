@@ -221,7 +221,7 @@ The following tables describe the CLI's persisted JSON files. Nullable fields ar
 | `text` | string | Yes | Transcript text for a successful result. |
 | `segments` | array of JSON values | No | Timestamped segments; raw JSON values are retained. |
 | `segmentsCount`, `itemCount` | number | No | Segment and returned Actor-item counts. |
-| `rawItems` | array of JSON objects | No | Actor items with JSON scalar types preserved; known secret-named keys are filtered. |
+| `rawItems` | array of JSON objects | No | Actor items with JSON scalar types preserved; recognized secret-named keys are removed and credential assignments in strings are redacted. |
 | `error`, `stage` | string | Yes | Redacted diagnostic and execution stage. |
 | `attributionVerification` | string | No | `verified`, `mismatch`, or `unknown`. |
 
@@ -235,7 +235,7 @@ The following tables describe the CLI's persisted JSON files. Nullable fields ar
 | `counts` | object of integer values | No | Counts by item status. |
 | `results` | array | No | One item per requested URL. Each has `url` (string), `status` (string), `text` (nullable string), `segments` and `items` (arrays), and `error` (nullable string). |
 | `extras` | array | No | Unmatched items; each has `status`, `reason` (strings), and `item` (JSON object). |
-| `rawItems` | array of JSON objects | No | Original Dataset items, subject only to known secret-key filtering. |
+| `rawItems` | array of JSON objects | No | Original Dataset items, with recognized secret-named keys removed and credential assignments in strings redacted. |
 
 ### Profile
 
@@ -247,7 +247,7 @@ The following tables describe the CLI's persisted JSON files. Nullable fields ar
 | `datasetComplete` | boolean | No | Single-page Dataset completeness. |
 | `usernames` | array of strings | No | Requested usernames. |
 | `posts` | array | No | Profile metadata; each post has nullable `url`, `type`, `ownerUsername`, `caption`, `timestamp`, `videoUrl`, `videoDuration`, and `error`; `status` is a string and `raw` is the original Actor object. |
-| `rawItems` | array of JSON objects | No | Original Dataset items, with known secret-named keys filtered. |
+| `rawItems` | array of JSON objects | No | Original Dataset items, with recognized secret-named keys removed and credential assignments in strings redacted. |
 
 Profile metadata is not transcript output and does not require `text` or `segments`.
 
@@ -265,7 +265,7 @@ Without `--execute`, the CLI emits a plan (`mode=csv_batch_plan`) and creates no
 | `rawItems` | array of JSON objects | No | Combined Actor items from processed rows. |
 | `error` | string | Yes | Batch-level diagnostic. |
 
-In Python's client, the transcript field is named `transcript`; Java uses `text`. Both expose `segments`. Java retains Actor JSON values and types in `rawItems`; output sanitization removes known secret-named keys, while business text is not rewritten. Diagnostics are redacted separately.
+In Python's client, the transcript field is named `transcript`; Java uses `text`. Both expose `segments`. Java retains Actor JSON structure and scalar types in `rawItems`; output sanitization removes recognized credential-named keys and redacts recognized credential assignments in raw strings, without truncating other long raw text. Transcript, segments, captions, and identifiers remain unchanged unless they contain a recognized credential pattern. This matcher does not cover every possible secret form, and diagnostics continue to use bounded `safeError()` handling.
 
 | Python field | Java field |
 | --- | --- |
@@ -285,7 +285,7 @@ Use `Path`-based paths and quote values appropriately in each shell. POSIX outpu
 
 ## Security summary
 
-The client does not hard-code or load credentials. The built-in transport disables redirects, performs at most one create POST, persists Journal intent first, filters known secret-named output keys, and redacts diagnostic fields before writing unique result files. Transcript and raw Actor business text are preserved verbatim. Treat Actor data as sensitive.
+The client does not hard-code or load credentials. The built-in transport disables redirects, performs at most one create POST, persists Journal intent first, removes recognized secret-named output keys, and redacts recognized credential assignments in raw Actor strings and bounded diagnostics before writing unique result files. Other transcript, caption, and raw Actor text is preserved without truncation. Credential detection is pattern-based and cannot cover every possible secret form; treat Actor data as sensitive.
 
 ## Validation and live acceptance boundary
 

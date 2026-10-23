@@ -151,9 +151,13 @@ ID, because none was received. To reconcile:
 
 Before persisting results, credential-like keys are removed recursively (`token`, `sessionid`,
 `cookie`, `authorization`, `password`, `secret`, `accessToken`, `refreshToken`, `apiKey`, in
-snake, kebab, and camel forms), and string values are scrubbed for common credential assignments.
-This reduces accidental leakage; it is not a substitute for treating raw Actor output as
-sensitive, and it does not inspect every possible encoding.
+snake, kebab, and camel forms). Recognized credential assignments in strings are also scrubbed,
+including strings inside raw Actor data such as `rawItems`, Profile `posts[].raw`, and unmatched
+Bulk items. Raw Actor JSON structure, scalar types, and non-sensitive content are retained; long
+non-sensitive strings are not truncated. Diagnostic fields continue to use bounded error
+sanitization. Java applies the same recursive raw-string redaction policy as the Python reference.
+The matcher covers common credential forms and cannot identify every possible secret, so raw Actor
+output should still be treated as sensitive.
 
 ## Java, Go, and Rust notes
 

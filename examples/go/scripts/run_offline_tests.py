@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MINIMUM_TEST_EXECUTIONS = 62
+MINIMUM_TEST_EXECUTIONS = 98
 
 
 def go_json_stream(text: str) -> list[dict]:

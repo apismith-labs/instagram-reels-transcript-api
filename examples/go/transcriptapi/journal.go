@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 )
 
@@ -14,6 +15,30 @@ import (
 type JSONLJournal struct {
 	mu   sync.Mutex
 	file *os.File
+	path string
+}
+
+// ReadJSONLJournal reads existing entries without changing the Journal file.
+func ReadJSONLJournal(path string) ([]JournalEntry, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	entries := []JournalEntry{}
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 4096), 4<<20)
+	for line := 1; scanner.Scan(); line++ {
+		var entry JournalEntry
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			return nil, errors.New("invalid JSONL Journal record at line " + strconv.Itoa(line))
+		}
+		entries = append(entries, entry)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 func OpenJSONLJournal(path string) (*JSONLJournal, error) {
@@ -31,7 +56,19 @@ func OpenJSONLJournal(path string) (*JSONLJournal, error) {
 		_ = f.Close()
 		return nil, err
 	}
-	return &JSONLJournal{file: f}, nil
+	return &JSONLJournal{file: f, path: path}, nil
+}
+
+func (j *JSONLJournal) ReadEntries(ctx context.Context) ([]JournalEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if j == nil || j.path == "" {
+		return nil, errors.New("Journal does not support recovery reads")
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return ReadJSONLJournal(j.path)
 }
 
 func (j *JSONLJournal) Append(ctx context.Context, entry JournalEntry) error {

@@ -32,10 +32,27 @@ type apiEnvelope struct {
 
 type runMetadata struct {
 	ID               string `json:"id"`
+	ActorID          string `json:"actId,omitempty"`
 	Status           string `json:"status"`
 	DefaultDatasetID string `json:"defaultDatasetId"`
 	BuildNumber      string `json:"buildNumber"`
 	BuildID          string `json:"buildId"`
+}
+
+type runExecution struct {
+	RunID             string
+	RunActorID        string
+	DatasetID         string
+	RunStatus         string
+	BuildNumber       string
+	BuildID           string
+	BuildVerification string
+	Items             []any
+	Complete          bool
+	ExecutionStatus   Status
+	Stage             string
+	Error             string
+	Cause             error
 }
 
 type apiHTTPError struct{ StatusCode int }
@@ -123,6 +140,10 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 
 // GetTranscript creates at most one Run. It never retries the Run-creation POST.
 func (c *Client) GetTranscript(ctx context.Context, reelURL string) (result Result) {
+	return c.getTranscript(ctx, reelURL, nil)
+}
+
+func (c *Client) getTranscript(ctx context.Context, reelURL string, inputContext *JournalInputContext) (result Result) {
 	// Public results must always expose a terminal attribution state, including
 	// early exits after a Run has been created but before Dataset classification.
 	defer func() {
@@ -132,18 +153,59 @@ func (c *Client) GetTranscript(ctx context.Context, reelURL string) (result Resu
 	if err != nil {
 		return c.failure(StatusTransportError, "input_validation", reelURL, "", "", "", c.config.BuildNumber, c.config.BuildID, "unverified", err)
 	}
-	result = Result{ActorID: c.config.ActorID, BuildNumber: c.config.BuildNumber, BuildID: c.config.BuildID,
-		SourceURL: validURL, BuildVerification: "pending", Segments: []Segment{}, RawItems: []any{}, AttributionVerification: "pending"}
-	entry := c.journalEntry("intent", validURL, "", "", "", c.config.BuildNumber, c.config.BuildID, "pending", capValue(c.config.MaxTotalChargeUSD))
-	if err := c.config.Journal.Append(ctx, entry); err != nil {
-		return c.failure(StatusTransportError, "journal_intent", validURL, "", "", "", "", "", "", &Error{Kind: ErrorJournal, Stage: "journal_intent", Err: err})
+	if inputContext == nil {
+		inputContext = &JournalInputContext{Mode: "single", Input: map[string]any{"videoUrl": validURL}}
 	}
+	exec := c.executeRun(ctx, validURL, map[string]any{"videoUrl": validURL}, inputContext)
+	result = resultFromExecution(c.config.ActorID, validURL, exec)
+	if exec.ExecutionStatus != StatusSuccess {
+		return result
+	}
+	items, complete := exec.Items, exec.Complete
+	result.RawItems, result.DatasetComplete = items, complete
+	result.Status, result.Text, result.Segments, result.Error, result.AttributionVerification = classifyItems(items, complete, validURL)
+	terminal := c.journalEntry(string(result.Status), validURL, result.RunID, result.DatasetID,
+		result.RunStatus, result.BuildNumber, result.BuildID, result.BuildVerification, capValue(c.config.MaxTotalChargeUSD))
+	terminal.InputContext = inputContext
+	if err := c.appendJournal(ctx, terminal); err != nil {
+		result.Status, result.Stage, result.Error = StatusTransportError, "journal_terminal", "Run completed but terminal Journal write failed"
+		return result
+	}
+	return result
+}
 
+// executeRun is the single Actor Run creation path shared by every mode. It never
+// retries the creation POST; callers only classify the returned Dataset items.
+func (c *Client) executeRun(ctx context.Context, label string, runInput any, inputContext *JournalInputContext) runExecution {
+	result := runExecution{ExecutionStatus: StatusTransportError, BuildNumber: c.config.BuildNumber, BuildID: c.config.BuildID,
+		BuildVerification: "pending", Items: []any{}}
+	appendFailure := func(status Status, stage string, cause error, verification string) runExecution {
+		result.ExecutionStatus, result.Stage, result.Cause = status, stage, cause
+		result.Error = cause.Error()
+		entry := c.journalEntry(stage, label, result.RunID, result.DatasetID, result.RunStatus, result.BuildNumber,
+			result.BuildID, verification, capValue(c.config.MaxTotalChargeUSD))
+		entry.InputContext = inputContext
+		if err := c.appendJournal(ctx, entry); err != nil {
+			result.ExecutionStatus, result.Stage, result.Error = StatusTransportError, "journal_terminal", "Run state is known but terminal Journal write failed"
+			result.Cause = &Error{Kind: ErrorJournal, Stage: "journal_terminal", Err: err}
+		}
+		return result
+	}
+	intent := c.journalEntry("intent", label, "", "", "", c.config.BuildNumber, c.config.BuildID, "pending", capValue(c.config.MaxTotalChargeUSD))
+	intent.InputContext = inputContext
+	if err := c.appendJournal(ctx, intent); err != nil {
+		result.Stage, result.Error = "journal_intent", err.Error()
+		result.Cause = &Error{Kind: ErrorJournal, Stage: "journal_intent", Err: err}
+		return result
+	}
+	body, err := json.Marshal(runInput)
+	if err != nil {
+		return appendFailure(StatusTransportError, "run_create_prepare", &Error{Kind: ErrorProtocol, Stage: "run_create_prepare", Err: errors.New("Actor input could not be encoded")}, "unknown")
+	}
 	postURL, err := c.runCreateURL()
 	if err != nil {
-		return c.failure(StatusTransportError, "run_create_prepare", validURL, "", "", "", "", "", "", err)
+		return appendFailure(StatusTransportError, "run_create_prepare", err, "unknown")
 	}
-	body, _ := json.Marshal(map[string]string{"videoUrl": validURL})
 	query := url.Values{}
 	query.Set("build", c.config.BuildNumber)
 	query.Set("restartOnError", "false")
@@ -161,71 +223,88 @@ func (c *Client) GetTranscript(ctx context.Context, reelURL string) (result Resu
 		if status == StatusTransportError {
 			stage = "run_create_rejected"
 		}
-		journalErr := c.config.Journal.Append(ctx, c.journalEntry(stage, validURL, "", "", "", c.config.BuildNumber, c.config.BuildID, "unknown", capValue(c.config.MaxTotalChargeUSD)))
-		result.Status, result.Stage, result.Error = status, stage, postErr.Error()
+		result.ExecutionStatus, result.Stage, result.Error = status, stage, postErr.Error()
 		kind := ErrorCreation
 		if status == StatusTransportError {
 			kind = ErrorTransport
 		}
 		result.Cause = &Error{Kind: kind, Stage: stage, Err: postErr}
-		if journalErr != nil {
-			result.Status, result.Stage, result.Error = StatusCreationUnknown, "journal_creation_unknown", "Run creation outcome is unknown and the Journal update failed"
+		failureEntry := c.journalEntry(stage, label, "", "", "", c.config.BuildNumber, c.config.BuildID, "unknown", capValue(c.config.MaxTotalChargeUSD))
+		failureEntry.InputContext = inputContext
+		if journalErr := c.appendJournal(ctx, failureEntry); journalErr != nil {
+			result.ExecutionStatus, result.Stage, result.Error = StatusCreationUnknown, "journal_creation_unknown", "Run creation outcome is unknown and the Journal update failed"
 			result.Cause = &Error{Kind: ErrorJournal, Stage: "journal_creation_unknown", Err: journalErr}
 		}
 		return result
 	}
 	var created apiEnvelope
 	if err := json.Unmarshal(createdRaw, &created); err != nil || created.Data.ID == "" {
-		message := errors.New("Run creation response did not provide a verifiable Run ID")
-		journalErr := c.config.Journal.Append(ctx, c.journalEntry("run_create_unknown", validURL, "", "", "", "", "", "unknown", capValue(c.config.MaxTotalChargeUSD)))
-		if journalErr != nil {
-			message = errors.New("Run creation outcome is unknown and the Journal update failed")
+		cause := errors.New("Run creation response did not provide a verifiable Run ID")
+		result.ExecutionStatus, result.Stage, result.Error = StatusCreationUnknown, "run_create_unknown", cause.Error()
+		result.Cause = &Error{Kind: ErrorCreation, Stage: result.Stage, Err: cause}
+		entry := c.journalEntry(result.Stage, label, "", "", "", "", "", "unknown", capValue(c.config.MaxTotalChargeUSD))
+		entry.InputContext = inputContext
+		if journalErr := c.appendJournal(ctx, entry); journalErr != nil {
+			result.Error = "Run creation outcome is unknown and the Journal update failed"
+			result.Cause = &Error{Kind: ErrorJournal, Stage: "journal_creation_unknown", Err: journalErr}
 		}
-		return c.failure(StatusCreationUnknown, "run_create_unknown", validURL, "", "", "", "", "", "unknown", message)
-	}
-	result.RunID = created.Data.ID
-	result.DatasetID = created.Data.DefaultDatasetID
-	result.RunStatus = created.Data.Status
-	result.BuildNumber = created.Data.BuildNumber
-	result.BuildID = created.Data.BuildID
-	if err := c.config.Journal.Append(ctx, c.journalEntry("run_created", validURL, result.RunID, result.DatasetID,
-		result.RunStatus, result.BuildNumber, result.BuildID, "pending", capValue(c.config.MaxTotalChargeUSD))); err != nil {
-		return c.failure(StatusTransportError, "journal_run_created", validURL, result.RunID, result.DatasetID, result.RunStatus,
-			result.BuildNumber, result.BuildID, "unknown", &Error{Kind: ErrorJournal, Stage: "journal_run_created", Err: err})
-	}
-
-	finished, pollErr := c.waitForRun(ctx, result.RunID, created.Data)
-	if pollErr != nil {
-		return c.finishFailure(ctx, result, validURL, StatusTransportError, "run_poll", pollErr)
-	}
-	result.RunStatus = finished.Status
-	result.BuildNumber = finished.BuildNumber
-	result.BuildID = finished.BuildID
-	if finished.Status != "SUCCEEDED" {
-		result = c.finishFailureResult(ctx, result, validURL, StatusRunFailed, "run_terminal", fmt.Errorf("Actor Run finished with status %s", finished.Status))
 		return result
+	}
+	result.RunID, result.DatasetID, result.RunStatus = created.Data.ID, created.Data.DefaultDatasetID, created.Data.Status
+	result.RunActorID = created.Data.ActorID
+	result.BuildNumber, result.BuildID = created.Data.BuildNumber, created.Data.BuildID
+	createdEntry := c.journalEntry("run_created", label, result.RunID, result.DatasetID, result.RunStatus,
+		result.BuildNumber, result.BuildID, "pending", capValue(c.config.MaxTotalChargeUSD))
+	createdEntry.RunActorID = result.RunActorID
+	createdEntry.InputContext = inputContext
+	if err := c.appendJournal(ctx, createdEntry); err != nil {
+		result.ExecutionStatus, result.Stage, result.Error = StatusTransportError, "journal_run_created", "Run was created but its identity could not be persisted"
+		result.Cause = &Error{Kind: ErrorJournal, Stage: result.Stage, Err: err}
+		return result
+	}
+	finished, err := c.waitForRun(ctx, result.RunID, created.Data)
+	if err != nil {
+		result.RunStatus = finished.Status
+		return appendFailure(StatusTransportError, "run_poll", err, "unverified")
+	}
+	result.RunStatus, result.BuildNumber, result.BuildID = finished.Status, finished.BuildNumber, finished.BuildID
+	if finished.Status != "SUCCEEDED" {
+		return appendFailure(StatusRunFailed, "run_terminal", fmt.Errorf("Actor Run finished with status %s", finished.Status), "unverified")
 	}
 	if finished.BuildNumber != c.config.BuildNumber || finished.BuildID != c.config.BuildID {
 		result.BuildVerification = "mismatch"
-		return c.finishFailure(ctx, result, validURL, StatusTransportError, "build_mismatch", &Error{Kind: ErrorProtocol,
-			Stage: "build_mismatch", Err: fmt.Errorf("expected Build %s / %s; received %q / %q", c.config.BuildNumber, c.config.BuildID, finished.BuildNumber, finished.BuildID)})
+		return appendFailure(StatusTransportError, "build_mismatch", &Error{Kind: ErrorProtocol, Stage: "build_mismatch",
+			Err: fmt.Errorf("expected Build %s / %s; received %q / %q", c.config.BuildNumber, c.config.BuildID, finished.BuildNumber, finished.BuildID)}, "mismatch")
 	}
 	result.BuildVerification = "verified"
 	if finished.DefaultDatasetID == "" {
-		return c.finishFailure(ctx, result, validURL, StatusTransportError, "dataset_identity", &Error{Kind: ErrorProtocol,
-			Stage: "dataset_identity", Err: errors.New("successful Run did not provide defaultDatasetId")})
+		return appendFailure(StatusTransportError, "dataset_identity", &Error{Kind: ErrorProtocol, Stage: "dataset_identity",
+			Err: errors.New("successful Run did not provide defaultDatasetId")}, "verified")
 	}
 	result.DatasetID = finished.DefaultDatasetID
-	items, complete, err := c.readDataset(ctx, finished.DefaultDatasetID)
+	items, complete, err := c.readDataset(ctx, result.DatasetID)
 	if err != nil {
-		return c.finishFailure(ctx, result, validURL, StatusTransportError, "dataset_read", err)
+		return appendFailure(StatusTransportError, "dataset_read", err, "verified")
 	}
-	result.RawItems, result.DatasetComplete = items, complete
-	result.Status, result.Text, result.Segments, result.Error, result.AttributionVerification = classifyItems(items, complete, validURL)
-	if err := c.config.Journal.Append(ctx, c.journalEntry(string(result.Status), validURL, result.RunID, result.DatasetID,
-		result.RunStatus, result.BuildNumber, result.BuildID, result.BuildVerification, capValue(c.config.MaxTotalChargeUSD))); err != nil {
-		result.Status, result.Stage, result.Error = StatusTransportError, "journal_terminal", "Run completed but terminal Journal write failed"
-		return result
+	result.Items, result.Complete, result.ExecutionStatus = items, complete, StatusSuccess
+	result.BuildVerification = "verified"
+	return result
+}
+
+func (c *Client) appendJournal(ctx context.Context, entry JournalEntry) error {
+	return c.config.Journal.Append(ctx, entry)
+}
+
+func resultFromExecution(actorID, sourceURL string, exec runExecution) Result {
+	result := Result{Status: exec.ExecutionStatus, RunStatus: exec.RunStatus, RunID: exec.RunID, DatasetID: exec.DatasetID,
+		SourceURL: sourceURL, ActorID: actorID, BuildNumber: exec.BuildNumber, BuildID: exec.BuildID,
+		BuildVerification: exec.BuildVerification, DatasetComplete: exec.Complete, Segments: []Segment{}, RawItems: exec.Items,
+		AttributionVerification: "unverified", Stage: exec.Stage, Error: exec.Error, Cause: exec.Cause}
+	if result.RawItems == nil {
+		result.RawItems = []any{}
+	}
+	if exec.ExecutionStatus == StatusSuccess {
+		result.Stage, result.Error, result.Cause = "", "", nil
 	}
 	return result
 }
@@ -309,7 +388,7 @@ func (c *Client) waitForRun(ctx context.Context, runID string, created runMetada
 }
 
 func (c *Client) readDataset(ctx context.Context, datasetID string) ([]any, bool, error) {
-	endpoint := c.base + "/datasets/" + url.PathEscape(datasetID) + "/items?limit=" + strconv.Itoa(c.config.DatasetLimit)
+	endpoint := c.base + "/datasets/" + url.PathEscape(datasetID) + "/items?limit=" + strconv.Itoa(c.config.DatasetLimit) + "&offset=0"
 	var raw []byte
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {

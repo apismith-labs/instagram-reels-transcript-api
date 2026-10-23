@@ -80,20 +80,33 @@ type Journal interface {
 	Append(context.Context, JournalEntry) error
 }
 
+type JournalReader interface {
+	ReadEntries(context.Context) ([]JournalEntry, error)
+}
+
 type JournalEntry struct {
-	At                time.Time `json:"at"`
-	Stage             string    `json:"stage"`
-	ActorID           string    `json:"actorId"`
-	SourceURL         string    `json:"sourceUrl"`
-	RunID             string    `json:"runId,omitempty"`
-	DatasetID         string    `json:"datasetId,omitempty"`
-	RunStatus         string    `json:"runStatus,omitempty"`
-	BuildNumber       string    `json:"buildNumber,omitempty"`
-	BuildID           string    `json:"buildId,omitempty"`
-	BuildVerification string    `json:"buildVerification,omitempty"`
-	MaxTotalChargeUSD *float64  `json:"maxTotalChargeUsd,omitempty"`
-	RestartOnError    bool      `json:"restartOnError"`
-	Error             string    `json:"error,omitempty"`
+	At                time.Time            `json:"at"`
+	Stage             string               `json:"stage"`
+	ActorID           string               `json:"actorId"`
+	SourceURL         string               `json:"sourceUrl"`
+	RunID             string               `json:"runId,omitempty"`
+	RunActorID        string               `json:"runActorId,omitempty"`
+	DatasetID         string               `json:"datasetId,omitempty"`
+	RunStatus         string               `json:"runStatus,omitempty"`
+	BuildNumber       string               `json:"buildNumber,omitempty"`
+	BuildID           string               `json:"buildId,omitempty"`
+	BuildVerification string               `json:"buildVerification,omitempty"`
+	MaxTotalChargeUSD *float64             `json:"maxTotalChargeUsd,omitempty"`
+	RestartOnError    bool                 `json:"restartOnError"`
+	InputContext      *JournalInputContext `json:"inputContext,omitempty"`
+	Error             string               `json:"error,omitempty"`
+}
+
+// JournalInputContext binds a persisted Run to the exact mode and Actor input.
+// It is optional so existing JSONL records remain readable.
+type JournalInputContext struct {
+	Mode  string `json:"mode"`
+	Input any    `json:"input"`
 }
 
 type Segment map[string]any
@@ -144,4 +157,175 @@ func ExitCode(status Status) int {
 	default:
 		return 8
 	}
+}
+
+type BulkStatus string
+
+const (
+	BulkAllSuccess     BulkStatus = "all_success"
+	BulkPartialSuccess BulkStatus = "partial_success"
+	BulkAllFailed      BulkStatus = "all_failed"
+	BulkUnknown        BulkStatus = "unknown"
+)
+
+type BulkItemStatus string
+
+const (
+	BulkItemSuccessTranscript BulkItemStatus = "success_transcript"
+	BulkItemActorError        BulkItemStatus = "actor_error"
+	BulkItemNoTranscript      BulkItemStatus = "no_transcript"
+	BulkItemMissingResult     BulkItemStatus = "missing_result"
+	BulkItemDuplicateResult   BulkItemStatus = "duplicate_result"
+	BulkItemUnknown           BulkItemStatus = "unknown"
+)
+
+type BulkRequest struct {
+	URLs               []string
+	ResultsLimit       *int
+	SkipPinnedPosts    *bool
+	IncludeSharesCount *bool
+}
+
+type BulkInputResult struct {
+	InputURL                string         `json:"inputUrl"`
+	Status                  BulkItemStatus `json:"status"`
+	Text                    string         `json:"text,omitempty"`
+	Segments                []Segment      `json:"segments"`
+	Items                   []any          `json:"items"`
+	AttributionVerification string         `json:"attributionVerification"`
+	Error                   string         `json:"error,omitempty"`
+}
+
+type ExtraResult struct {
+	Reason string `json:"reason"`
+	Item   any    `json:"item"`
+}
+
+type BulkCounts struct {
+	SuccessTranscript int `json:"success_transcript"`
+	ActorError        int `json:"actor_error"`
+	NoTranscript      int `json:"no_transcript"`
+	MissingResult     int `json:"missing_result"`
+	DuplicateResult   int `json:"duplicate_result"`
+	Unknown           int `json:"unknown"`
+}
+
+type BulkResult struct {
+	Status            BulkStatus        `json:"status"`
+	ExecutionStatus   Status            `json:"executionStatus"`
+	Inputs            []BulkInputResult `json:"inputs"`
+	ExtraResults      []ExtraResult     `json:"extraResults"`
+	Counts            BulkCounts        `json:"counts"`
+	URLs              []string          `json:"urls"`
+	RunID             string            `json:"runId,omitempty"`
+	DatasetID         string            `json:"datasetId,omitempty"`
+	RunStatus         string            `json:"runStatus,omitempty"`
+	ActorID           string            `json:"actorId"`
+	BuildNumber       string            `json:"buildNumber,omitempty"`
+	BuildID           string            `json:"buildId,omitempty"`
+	BuildVerification string            `json:"buildVerification"`
+	DatasetComplete   bool              `json:"datasetComplete"`
+	RawItems          []any             `json:"rawItems"`
+	Error             string            `json:"error,omitempty"`
+	Stage             string            `json:"stage,omitempty"`
+	Cause             error             `json:"-"`
+}
+
+func BulkExitCode(result BulkResult) int {
+	if result.ExecutionStatus != StatusSuccess && result.Status == BulkUnknown {
+		return ExitCode(result.ExecutionStatus)
+	}
+	switch result.Status {
+	case BulkAllSuccess:
+		return 0
+	case BulkPartialSuccess:
+		return 11
+	case BulkAllFailed:
+		return 12
+	default:
+		return 13
+	}
+}
+
+type ProfileRequest struct {
+	Usernames          []string
+	ResultsLimit       *int
+	OnlyPostsNewerThan string
+	SkipPinnedPosts    *bool
+	IncludeSharesCount *bool
+}
+
+type ProfileStatus string
+
+const (
+	ProfileSuccess    ProfileStatus = "success"
+	ProfileEmpty      ProfileStatus = "empty"
+	ProfileActorError ProfileStatus = "actor_error"
+	ProfileUnknown    ProfileStatus = "unknown"
+)
+
+type ProfilePost struct {
+	URL           string `json:"url,omitempty"`
+	Type          string `json:"type,omitempty"`
+	OwnerUsername string `json:"ownerUsername,omitempty"`
+	Caption       string `json:"caption,omitempty"`
+	Timestamp     any    `json:"timestamp,omitempty"`
+	VideoURL      string `json:"videoUrl,omitempty"`
+	VideoDuration any    `json:"videoDuration,omitempty"`
+	Status        string `json:"status"`
+	Error         string `json:"error,omitempty"`
+	Raw           any    `json:"raw"`
+}
+
+type ProfileResult struct {
+	Status            ProfileStatus `json:"status"`
+	ExecutionStatus   Status        `json:"executionStatus"`
+	Usernames         []string      `json:"usernames"`
+	Posts             []ProfilePost `json:"posts"`
+	RawItems          []any         `json:"rawItems"`
+	RunID             string        `json:"runId,omitempty"`
+	DatasetID         string        `json:"datasetId,omitempty"`
+	RunStatus         string        `json:"runStatus,omitempty"`
+	ActorID           string        `json:"actorId"`
+	BuildNumber       string        `json:"buildNumber,omitempty"`
+	BuildID           string        `json:"buildId,omitempty"`
+	BuildVerification string        `json:"buildVerification"`
+	DatasetComplete   bool          `json:"datasetComplete"`
+	Error             string        `json:"error,omitempty"`
+	Stage             string        `json:"stage,omitempty"`
+	Cause             error         `json:"-"`
+}
+
+func ProfileExitCode(result ProfileResult) int {
+	if result.ExecutionStatus != StatusSuccess {
+		return ExitCode(result.ExecutionStatus)
+	}
+	switch result.Status {
+	case ProfileSuccess, ProfileEmpty:
+		return 0
+	case ProfileActorError:
+		return 4
+	default:
+		return 7
+	}
+}
+
+type CSVRowResult struct {
+	Row       int       `json:"row"`
+	URL       string    `json:"url"`
+	Status    Status    `json:"status"`
+	RunID     string    `json:"runId,omitempty"`
+	DatasetID string    `json:"datasetId,omitempty"`
+	Text      string    `json:"text,omitempty"`
+	Segments  []Segment `json:"segments"`
+	RawItems  []any     `json:"rawItems"`
+	Error     string    `json:"error,omitempty"`
+}
+
+type CSVBatchResult struct {
+	Status  string         `json:"status"`
+	Rows    []CSVRowResult `json:"rows"`
+	Success int            `json:"success"`
+	Failed  int            `json:"failed"`
+	Counts  map[Status]int `json:"counts"`
 }

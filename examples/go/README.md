@@ -1,56 +1,57 @@
-# Go Single URL Client MVP
+# Go Client and Examples
 
-This Go example provides an importable `transcriptapi` package and a Single URL CLI for the
-Apify Actor `apple_yang/instagram-transcripts-scraper`. It is a Go 1.22 module and is not at
-Python or Node.js feature parity.
+This Go 1.22 module provides a reusable `transcriptapi` Client plus Single URL, Native Bulk,
+Profile, and CSV Batch examples for `apple_yang/instagram-transcripts-scraper`. The public API
+uses the pinned Build `0.0.50` / `aJLRmMdQapLQRT4sJ`. Go now covers these modes, while Resume is
+available for journaled Single URL and Native Bulk Runs; it does not yet match every Python or
+Node.js feature.
 
 ## Live verification scope
 
-Go Single URL completed one controlled Live verification using Build `0.0.50`. The Run succeeded,
+Go Single URL completed one controlled Live verification with Build `0.0.50`. The Run succeeded,
 returned transcript text and 15 timestamped segments, and verified the expected Build and URL
 attribution. Apify Run metadata confirmed the requested `$0.10` charge cap and
-`restartOnError=false`; the reported usage for that run was `$0.0055`. This single test is not a
-large-scale production reliability guarantee, does not establish that every video can be
-transcribed, and the charge cap is not an absolute final-bill limit.
+`restartOnError=false`; reported usage was `$0.0055`. This single test is not a large-scale
+production reliability guarantee, does not establish that every video can be transcribed, and the
+charge cap is not an absolute final-bill limit. Native Bulk, Profile, and CSV Batch do not have a
+new Go Live acceptance in this release.
 
 ## Safety behavior
 
-- The Client import has no environment, credential, network, or file side effects. Pass the token
-  through `Config`; the CLI reads `APIFY_TOKEN` from the process environment only and does not load
+- Importing the package has no environment, credential, network, or file side effects. Pass the
+  token through `Config`; CLIs read `APIFY_TOKEN` from the process environment only and do not load
   `.env`.
-- Reel/post URLs are validated before the CLI reads credentials. Only HTTPS `reel`, `reels`, and
-  `p` URL paths on `instagram.com` are accepted; query strings and fragments are rejected.
-- Build Number `0.0.50` and Build ID `aJLRmMdQapLQRT4sJ` are fixed and verified against the
-  returned Run metadata before Dataset contents are accepted.
-- Dataset item URLs are checked against the requested Reel when present. A mismatching or malformed
-  URL makes the result `unknown`; if the Actor omits the URL, the result records attribution as
-  `unverified` rather than claiming it was checked.
-- Set `RequireChargeCap: true` and a positive `MaxTotalChargeUSD` (or use the CLI options below).
-  The cap is sent as the Run query option, not Actor input. Apify may reject it and it is not a
+- Input URLs, usernames, and full CSV contents are validated before credentials are read or a Run
+  is created. The CSV CLI defaults to a zero-Run plan; `--execute` is required to submit one
+  independent Run per non-empty row.
+- Native Bulk submits the validated `bulkUrls` array in one Actor Run. URL identity is primary;
+  shortcode fallback is used only when an output item has no URL. Conflicts and unmatched items are
+  kept as extras or unknown results rather than assigned by position.
+- Profile returns post metadata, not transcripts. Multi-account attribution requires each post's
+  `ownerUsername` to match a requested account; for one account, a missing owner is accepted under
+  the single-account rule and a conflicting owner remains unknown.
+- Build Number and Build ID are checked against the returned Run before Dataset items are accepted.
+  New Run requests explicitly send `restartOnError=false`. The creation POST cannot follow
+  redirects and is never automatically retried; ambiguous creation returns `creation_unknown`.
+- Configure `RequireChargeCap: true` with a positive `MaxTotalChargeUSD` or set the matching CLI
+  option/environment variables. The cap is a Run query option, not Actor input, and is not a
   guarantee of the final account bill.
-- New Run requests explicitly send `restartOnError=false`. The creation POST uses a copied
-  `http.Client` whose redirect policy returns 3xx responses directly, preventing 301/302/303/307/308
-  from replaying or forwarding the POST. HTTP 429, server errors, timeouts, and ambiguous responses
-  are not retried. Run and Dataset GET requests retain the configured client's normal redirect and
-  bounded-retry behavior. A `creation_unknown` outcome must be reconciled before any separate retry
-  decision.
-- An append-only JSONL Journal records intent before creation and the known Run identity as soon as
-  available. Journal failures stop the flow; a Run created before a persistence error is returned
-  with its known IDs where available.
-- Dataset reads set a single-page limit. `datasetComplete=false` means the response reached that
-  configured limit; it does not implement pagination.
-- Output and Journal files use unique or append-only names and mode `0600` on POSIX. Windows does
-  not provide identical POSIX permission semantics.
+- JSONL Journal intent is synced before creation and the Run identity is synced immediately after
+  creation. Journal failures stop further paid work. Resume requires a matching journal record and
+  the exact original Actor input; it performs GETs only and never creates a Run.
+- Dataset reads use one page with `offset=0` and a configured item limit (default 1000). Reaching
+  the limit marks the result incomplete; general pagination is not implemented.
+- Result files are unique and use mode `0600` on POSIX. Windows does not provide identical POSIX
+  permission semantics.
 
-## CLI
+## Quick starts
 
-From this module directory, configure the process environment and run one explicit URL:
+From `examples/go`, configure `APIFY_TOKEN`. The CLI never loads `.env`.
 
 ```sh
 export APIFY_TOKEN='your-token'
 export APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD=1
 export APIFY_MAX_TOTAL_CHARGE_USD=0.30
-go run ./cmd/single-url https://www.instagram.com/reel/your_reel_id/
 ```
 
 PowerShell:
@@ -59,43 +60,62 @@ PowerShell:
 $env:APIFY_TOKEN = 'your-token'
 $env:APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD = '1'
 $env:APIFY_MAX_TOTAL_CHARGE_USD = '0.30'
+```
+
+Single URL:
+
+```sh
 go run ./cmd/single-url https://www.instagram.com/reel/your_reel_id/
 ```
 
-The CLI also accepts `--max-total-charge-usd`, `--require-charge-cap`, `--output-dir`, and
-`--journal`. Run `go run ./cmd/single-url --help` for usage. The CLI writes a unique JSON result
-under `sample-output/generated/` by default and appends Journal entries to
-`sample-output/generated/go-run-journal.jsonl`. It prints a JSON result summary with Run ID,
-Dataset ID, Build evidence, status, transcript, segments, and output path. A failed or unknown
-result has a non-zero status-specific exit code; in particular, exit code 10 means the creation
-outcome is unknown and the POST must not be blindly repeated.
-
-Status exit codes: `success` 0, input/configuration error 2, `actor_error` 4, `empty` 5,
-`no_transcript` 6, `unknown` 7, `transport_error` 8, `run_failed` 9, and `creation_unknown` 10.
-
-## Reusable Client
-
-The module path is `github.com/apismith-labs/instagram-reels-transcript-api/examples/go` and the
-package import path is the `/transcriptapi` subpackage. The Client accepts dependencies explicitly;
-it does not read process environment or `.env` itself.
-
-This is a nested Go module. Before its v0.8.0 module tag is published and verified from an external
-consumer, use a local `replace` directive to test a checkout. For example, if the consumer project
-and repository checkout are sibling directories:
-
-```go
-replace github.com/apismith-labs/instagram-reels-transcript-api/examples/go => ../instagram-reels-transcript-api/examples/go
-```
-
-The planned Go module tag is `examples/go/v0.8.0`; the root GitHub Release tag is `v0.8.0`. They
-must point to the same final release commit. The versioned installation command below is a
-post-publication example only and has not yet been verified with an external `go get`:
+Native Bulk — one Run for all URLs:
 
 ```sh
-go get github.com/apismith-labs/instagram-reels-transcript-api/examples/go@v0.8.0
+go run ./cmd/native-bulk https://www.instagram.com/reel/first_id/ https://www.instagram.com/reel/second_id/
 ```
 
-Do not treat the root tag by itself as the nested module's version tag.
+Profile — metadata only:
+
+```sh
+go run ./cmd/profile --results-limit 2 public_username
+```
+
+CSV Batch validates the complete file first. It plans by default, with zero credentials read and
+zero Runs; use `--execute` only when you intend one separate Run per row:
+
+```sh
+go run ./cmd/batch-csv --dry-run path/to/urls.csv
+go run ./cmd/batch-csv --execute --require-charge-cap --max-total-charge-usd 0.30 path/to/urls.csv
+```
+
+CSV input is UTF-8 with a header containing either `url` or `videoUrl`. A BOM and common newline formats are
+accepted. Empty files and empty datasets create no Runs. Every non-empty data row is an independent
+task and can incur a separate charge; rows execute serially, and an unknown creation or persistence
+state stops the batch from launching more Runs.
+
+Every CLI accepts `--help`, `--output-dir`, and `--journal`; mode-specific options are shown by each
+help page. Outputs use unique files under `sample-output/generated/` by default. JSON retains the
+full transcript/segments or Profile posts and original Actor items; stdout is a compact JSON result.
+
+## Resume
+
+Single URL recovery:
+
+```sh
+go run ./cmd/single-url --resume RUN_ID https://www.instagram.com/reel/your_reel_id/
+```
+
+Native Bulk recovery:
+
+```sh
+go run ./cmd/native-bulk --resume RUN_ID https://www.instagram.com/reel/first_id/ https://www.instagram.com/reel/second_id/
+```
+
+Use the same Journal path and exact original inputs. Resume refuses missing or mismatched Journal
+context and performs only GET requests. CSV and Profile Resume are not supported. Never rerun a
+create command just because its prior creation outcome is unknown.
+
+## Reusable Client
 
 ```go
 package main
@@ -113,43 +133,48 @@ func main() {
 	journal, err := transcriptapi.OpenJSONLJournal("sample-output/generated/go-run-journal.jsonl")
 	if err != nil { panic(err) }
 	defer journal.Close()
-
 	client, err := transcriptapi.NewClient(transcriptapi.Config{
-		Token: os.Getenv("APIFY_TOKEN"),
-		RequireChargeCap: true,
-		MaxTotalChargeUSD: 0.30,
-		Journal: journal,
+		Token: os.Getenv("APIFY_TOKEN"), RequireChargeCap: true, MaxTotalChargeUSD: 0.30, Journal: journal,
 	})
 	if err != nil { panic(err) }
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	result := client.GetTranscript(ctx, "https://www.instagram.com/reel/your_reel_id/")
 	fmt.Println(result.Status, result.RunID, result.DatasetID, result.Text)
-	if result.Status != transcriptapi.StatusSuccess { os.Exit(transcriptapi.ExitCode(result.Status)) }
 }
 ```
 
-`Result` retains `Status`, actual `RunStatus`, `RunID`, `DatasetID`, `ActorID`, Build Number and ID,
-`BuildVerification`, `DatasetComplete`, `Text`, `Segments`, `RawItems`,
-`AttributionVerification`, and error information. Attribution is `verified` when item URLs match,
-`unverified` when the Actor omits URL fields, and `mismatch` or `unknown` for conflicting or invalid
-URL data.
-`Cause` provides a typed error for transport, protocol, Journal, or ambiguous-creation failures and
-is omitted from JSON. The caller can inject an `*http.Client` (including a custom `RoundTripper`),
-`Journal`, clock, and context-aware sleep function for isolated tests. Creation redirects are
-disabled even when an HTTP client is injected. A custom `RoundTripper` must perform one HTTP
-exchange and must not implement its own redirect loop.
+The Client exposes `GetTranscript`, `GetTranscripts`, `GetProfilePosts`, and
+`GetTranscriptsFromCSV`. It accepts dependencies explicitly and does not read process environment
+or `.env`. Inject an `*http.Client` with a fake `RoundTripper`, a Journal, clock, and context-aware
+sleep function for offline tests. `Result` retains the v0.8.0 Single URL JSON contract. Bulk results
+include per-input status, attribution, counts, extras, complete raw items and Dataset completeness;
+Profile results retain metadata and raw items without requiring transcript fields.
 
-The module currently supports Single URL only. Native Bulk, Profile, Resume, and complete CSV Batch
-are not implemented. `Result.RawItems` preserves Dataset entries, including non-object JSON values;
-those non-object entries produce `unknown` rather than being discarded.
+The nested module path is
+`github.com/apismith-labs/instagram-reels-transcript-api/examples/go`; import the package at
+`github.com/apismith-labs/instagram-reels-transcript-api/examples/go/transcriptapi`. The published
+v0.8.0 module can be installed with:
 
-## Retired CSV Batch entry
+```sh
+go get github.com/apismith-labs/instagram-reels-transcript-api/examples/go@v0.8.0
+```
 
-The former `batch_csv.go` implementation is retired because it could repeat billable Run-creation
-POSTs after an ambiguous failure. Running `go run batch_csv.go` now prints a deprecation message,
-returns exit code 2, and does not read credentials or create Runs. The old `single_url.go` entry
-was replaced by `cmd/single-url`; migrate to `go run ./cmd/single-url <explicit-URL>` or import the
-Client. Do not use the retired CSV entry for batch work. No Go CSV Batch replacement is included in
-this MVP.
+That external installation and compilation were verified for v0.8.0 with Go 1.27.3. The parity
+features described above are development-branch work and are not part of the published v0.8.0
+module. For a checkout under development, use a local `replace` directive rather than claiming the
+unreleased APIs are available from v0.8.0. Future nested-module tags follow
+`examples/go/vX.Y.Z` and must point to the same commit as the corresponding root release tag.
+
+## Result states and limits
+
+Single URL retains the existing exit code contract: `success` 0, input/configuration error 2,
+`actor_error` 4, `empty` 5, `no_transcript` 6, `unknown` 7, `transport_error` 8, `run_failed` 9,
+and `creation_unknown` 10. Bulk returns `all_success`, `partial_success`, `all_failed`, or `unknown`
+and preserves per-input statuses. Profile returns `success`, `empty`, `actor_error`, or `unknown`;
+it does not classify missing transcript text as failure. CSV records successes and failures per row.
+
+Dataset reads are single-page only. Native Bulk, Profile, and CSV Batch have offline coverage but
+no new Go Live acceptance in this release. Go does not yet implement every Python or Node.js API,
+parallel CSV execution, generalized pagination, Profile/CSV Resume, or Actor-side capabilities not
+exposed by the current examples.

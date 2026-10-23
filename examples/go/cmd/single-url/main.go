@@ -56,6 +56,7 @@ func run(args []string, deps dependencies) int {
 	flags.SetOutput(deps.stderr)
 	outputDir := flags.String("output-dir", "sample-output/generated", "directory for unique private JSON output")
 	journalPath := flags.String("journal", "", "append-only JSONL Journal path (defaults inside output-dir)")
+	resumeID := flags.String("resume", "", "resume an existing journaled Run ID without creating a new Run")
 	maxCharge := flags.String("max-total-charge-usd", "", "per-Run charge cap; may also be set with APIFY_MAX_TOTAL_CHARGE_USD")
 	requireCapFlag := flags.Bool("require-charge-cap", false, "require a positive per-Run charge cap")
 	flags.Usage = func() {
@@ -68,9 +69,21 @@ func run(args []string, deps dependencies) int {
 		}
 		return cliError(deps.stderr, "invalid arguments", 2)
 	}
+	resumeProvided := false
+	flags.Visit(func(item *flag.Flag) {
+		if item.Name == "resume" {
+			resumeProvided = true
+		}
+	})
+	if resumeProvided && strings.TrimSpace(*resumeID) == "" {
+		return cliError(deps.stderr, "--resume requires a non-empty Run ID; it never falls back to creating a Run", 2)
+	}
 	if len(flags.Args()) != 1 {
 		flags.Usage()
 		return cliError(deps.stderr, "exactly one explicit Instagram URL is required", 2)
+	}
+	if *resumeID != "" && strings.TrimSpace(*resumeID) != *resumeID {
+		return cliError(deps.stderr, "--resume requires a valid Run ID", 2)
 	}
 	validURL, err := transcriptapi.ValidateVideoURL(flags.Args()[0])
 	if err != nil {
@@ -132,7 +145,12 @@ func run(args []string, deps dependencies) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	result := client.GetTranscript(ctx, validURL)
+	var result transcriptapi.Result
+	if *resumeID != "" {
+		result = client.ResumeTranscript(ctx, *resumeID, validURL)
+	} else {
+		result = client.GetTranscript(ctx, validURL)
+	}
 	writePath, writeErr := deps.writeResult(*outputDir, result, deps.now())
 	if writeErr != nil {
 		result.Status = transcriptapi.StatusTransportError

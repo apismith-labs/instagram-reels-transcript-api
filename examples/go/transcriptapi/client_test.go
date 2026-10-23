@@ -38,6 +38,15 @@ func (j *memoryJournal) Append(ctx context.Context, entry JournalEntry) error {
 	return nil
 }
 
+func (j *memoryJournal) ReadEntries(ctx context.Context) ([]JournalEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return append([]JournalEntry(nil), j.entries...), nil
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

@@ -31,7 +31,7 @@ func baseEnv() map[string]string {
 }
 
 func TestCLIHelpAndBadInputsDoNotReadCredentialsOrPost(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {}, {"not-a-url"}, {"[reel](https://instagram.com/reel/x/)"}, {"https://instagram.com/reel/x/", "extra"}} {
+	for _, args := range [][]string{{"--help"}, {}, {"not-a-url"}, {"[reel](https://instagram.com/reel/x/)"}, {"https://instagram.com/reel/x/", "extra"}, {"--resume=", "https://instagram.com/reel/x/"}} {
 		reads := 0
 		posts := &fakeHTTP{}
 		var stdout, stderr bytes.Buffer

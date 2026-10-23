@@ -47,7 +47,7 @@ public final class Main {
         }catch(CreationUnknownException e){return failure(err,"CreationUnknownException",e,10);}
         catch(ConfigurationException e){return failure(err,"ConfigurationException",e,2);}
         catch(TranscriptClientException e){int code="run_failed".equals(e.stage())?9:8;return failure(err,e.getClass().getSimpleName(),e,code);}
-        catch(Exception e){return failure(err,"Error",new RuntimeException(JsonSupport.redact(e.getMessage())),8);}
+        catch(Exception e){return failure(err,"Error",new RuntimeException(JsonSupport.safeError(e.getMessage())),8);}
     }
     private static int single(Parsed p,Map<String,String> env,PrintStream out,PrintStream err,Dependencies dep)throws Exception{
         requireOptions(p,"output-dir","journal","max-total-charge-usd","require-charge-cap","resume");boolean resume=p.options().containsKey("resume");if(resume&&!p.positionals().isEmpty())throw new ConfigurationException("single --resume cannot be combined with a URL");if(!resume&&p.positionals().size()!=1)throw new ConfigurationException("single requires exactly one explicit Reel URL");
@@ -78,7 +78,7 @@ public final class Main {
     private static Integer integer(Map<String,String> opts,String name){String v=opts.get(name);if(v==null)return null;try{int n=Integer.parseInt(v);if(n<1)throw new NumberFormatException();return n;}catch(NumberFormatException e){throw new ConfigurationException("--"+name+" must be a positive integer");}}
     private static Boolean bool(Map<String,String> o,String n){String v=o.get(n);if(v==null)return null;if("true".equals(v))return true;if("false".equals(v))return false;throw new ConfigurationException("--"+n+" must be true or false");}
     private static void requireOptions(Parsed p,String... allowed){List<String> a=List.of(allowed);for(String k:p.options().keySet())if(!a.contains(k))throw new ConfigurationException("option --"+k+" is not supported for "+p.command());}
-    private static int failure(PrintStream err,String type,Throwable e,int code){String message=JsonSupport.redact(e.getMessage()==null?"operation failed":e.getMessage()).replace('\n',' ');err.println(type+": "+message);return code;}
+    private static int failure(PrintStream err,String type,Throwable e,int code){String message=JsonSupport.safeError(e.getMessage()==null?"operation failed":e.getMessage());err.println(type+": "+message);return code;}
     private static int singleCode(Status s){return switch(s){case SUCCESS->0;case ACTOR_ERROR->4;case EMPTY->5;case NO_TRANSCRIPT->6;case UNKNOWN->7;case TRANSPORT_ERROR->8;case RUN_FAILED->9;case CREATION_UNKNOWN->10;default->7;};}
     private static int bulkCode(BulkResult r){if(r.executionStatus()!=Status.SUCCESS)return singleCode(r.executionStatus());return switch(r.status()){case ALL_SUCCESS->0;case PARTIAL_SUCCESS->11;case ALL_FAILED->12;case UNKNOWN->13;};}
     private static int profileCode(ProfileResult r){if(r.executionStatus()!=Status.SUCCESS)return singleCode(r.executionStatus());return switch(r.status()){case SUCCESS->0;case ACTOR_ERROR->4;case EMPTY->5;case UNKNOWN->7;case RUN_FAILED->9;};}

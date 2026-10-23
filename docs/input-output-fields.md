@@ -49,7 +49,7 @@ Mode boundaries:
 | Native bulk transcript | Yes — Python, Node.js, Go, Java |
 | Profile posts | Yes — Python, Node.js, Go, Java |
 
-The table above summarizes the currently implemented examples. Java completed controlled Live checks for Single URL, three-URL Native Bulk, one-row CSV, and GET-only Single Resume; its three-account Profile check was PARTIAL (19 success, one owner attribution unknown, one Actor error). See
+The table above summarizes the currently implemented examples. Java completed controlled Live checks for Single URL, three-URL Native Bulk, one-row CSV, and GET-only Single Resume; its three-account Profile check was PARTIAL (19 success, one owner attribution unknown, one Actor error). Java CSV `--execute` requires a positive per-Run charge cap supplied through `--max-total-charge-usd` or `APIFY_MAX_TOTAL_CHARGE_USD`. See
 [batch-processing-guide.md](batch-processing-guide.md) for how the existing CSV examples differ
 from native bulk.
 
@@ -119,7 +119,7 @@ Additional notes:
 
 The Java client pins Build Number `0.0.50` and verifies Build ID `aJLRmMdQapLQRT4sJ`. It sends `build`, `restartOnError=false`, and the optional `maxTotalChargeUsd` in Run query parameters, not in Actor input. Single input uses `videoUrl` and adds `sessionid` only when explicitly configured. Native Bulk uses `bulkUrls`; Profile uses `usernames` with only the supplied optional filters. Java CSV accepts a `url` or `videoUrl` column and creates one separate Run per row only after `--execute`.
 
-Java retains each Dataset item as a Jackson `JsonNode`; the application result adds normalized status, transcript `text` and `segments` where applicable, while preserving the original `rawItems` and their JSON scalar types. Profile uses `ownerUsername` for attribution and does not require transcript fields. Java reads one Dataset page and reports it incomplete when the configured page limit is reached.
+Java retains each Dataset item as a Jackson `JsonNode`; the application result adds normalized status, transcript `text` and `segments` where applicable, while preserving the original `rawItems` and their JSON scalar types. Profile uses `ownerUsername` for attribution and does not require transcript fields. Java reads one Dataset page and reports it incomplete when the configured page limit is reached. CSV `--execute` requires a positive per-Run charge cap; without one it exits before reading the token or creating a Run.
 
 ## Output
 

@@ -58,7 +58,7 @@ node examples/nodejs/batch-csv.mjs "sample-data/instagram-reel-urls.csv"
 
 The CSV path is required for every command. There is no implicit sample-file fallback. Use
 `--dry-run` to validate the file and display the planned number of independent Runs without creating
-them. Go and Java default to a zero-Run plan; `--execute` is required before either CLI reads the token or starts one independent Run per row. Java also accepts `url` or `videoUrl` headers.
+them. Go and Java default to a zero-Run plan; `--execute` is required before either CLI reads the token or starts one independent Run per row. Java `--execute` also requires a positive per-Run cap from `--max-total-charge-usd` or `APIFY_MAX_TOTAL_CHARGE_USD`. The Java example includes `--require-charge-cap` as an explicit guard; the positive cap is still required even without that flag. Java also accepts `url` or `videoUrl` headers.
 
 ### Result statuses
 

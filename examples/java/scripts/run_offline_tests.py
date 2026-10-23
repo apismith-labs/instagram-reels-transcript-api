@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from typing import Callable
 
 # Keep equal to the current full Surefire execution count (including parameterized cases).
-MINIMUM_TEST_EXECUTIONS = 138
+MINIMUM_TEST_EXECUTIONS = 141
 
 SAMPLE = b'''<testsuite name="sample" tests="3" failures="0" errors="0" skipped="0">
   <testcase classname="sample" name="one"/><testcase classname="sample" name="two"/><testcase classname="sample" name="three"/>

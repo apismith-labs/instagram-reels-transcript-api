@@ -24,7 +24,7 @@ public final class OutputFiles {
         for(int i=0;i<100;i++){Path candidate=directory.resolve(base+"-"+java.util.UUID.randomUUID()+".json");try{try{Files.createFile(candidate,PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ,PosixFilePermission.OWNER_WRITE)));}catch(UnsupportedOperationException ex){Files.createFile(candidate);}chosen=candidate;break;}catch(java.nio.file.FileAlreadyExistsException ignored){}}
         if(chosen==null)throw new IOException("could not reserve a unique result path");
         try{try{Files.setPosixFilePermissions(chosen,EnumSet.of(PosixFilePermission.OWNER_READ,PosixFilePermission.OWNER_WRITE));}catch(UnsupportedOperationException ignored){}
-            JsonNode tree=JsonSupport.MAPPER.valueToTree(document);JsonNode clean=JsonSupport.sanitize(tree);byte[] bytes=(JsonSupport.MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(clean)+"\n").getBytes(StandardCharsets.UTF_8);
+            JsonNode tree=JsonSupport.MAPPER.valueToTree(document);JsonNode clean=JsonSupport.sanitizeForOutput(tree);byte[] bytes=(JsonSupport.MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(clean)+"\n").getBytes(StandardCharsets.UTF_8);
             try(FileChannel c=FileChannel.open(chosen,StandardOpenOption.WRITE)){ByteBuffer b=ByteBuffer.wrap(bytes);while(b.hasRemaining())c.write(b);c.force(true);}return chosen;
         }catch(Exception ex){if(ex instanceof IOException io)throw io;throw new IOException("result JSON could not be written",ex);}
     }

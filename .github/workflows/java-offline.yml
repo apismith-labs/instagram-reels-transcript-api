@@ -25,7 +25,11 @@ jobs:
         run: test ! -e ../../.env
       - name: Compile
         run: mvn -B -q -DskipTests compile
+      - name: Test offline gate self-test
+        run: python3 scripts/run_offline_tests.py --self-test
       - name: Run offline Java tests with count gate
         run: python3 scripts/run_offline_tests.py
       - name: Package (thin + shaded)
         run: mvn -B -q -DskipTests package
+      - name: Verify regression mutation detection
+        run: python3 scripts/mutation_check.py

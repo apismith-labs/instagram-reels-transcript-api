@@ -9,7 +9,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 # Keep equal to the current full Surefire execution count (including parameterized cases).
-MINIMUM_TEST_EXECUTIONS = 110
+MINIMUM_TEST_EXECUTIONS = 126
 
 SAMPLE = b'''<testsuite name="sample" tests="3" failures="0" errors="0" skipped="0">
   <testcase classname="sample" name="one"/><testcase classname="sample" name="two"/><testcase classname="sample" name="three"/>

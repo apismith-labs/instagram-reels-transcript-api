@@ -51,9 +51,9 @@ https://www.instagram.com/p/your_post_id/
 ```bash
 python examples/python/batch_csv.py "sample-data/instagram-reel-urls.csv"
 node examples/nodejs/batch-csv.mjs "sample-data/instagram-reel-urls.csv"
-(cd examples/java && java -jar target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar csv ../../sample-data/instagram-reel-urls.csv --execute --require-charge-cap --max-total-charge-usd 0.10)
 (cd examples/go && go run ./cmd/batch-csv --dry-run ../../sample-data/instagram-reel-urls.csv)
 (cd examples/java && java -jar target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar csv ../../sample-data/instagram-reel-urls.csv)
+(cd examples/java && java -jar target/instagram-reels-transcript-api-java-examples-0.1.0-shaded.jar csv ../../sample-data/instagram-reel-urls.csv --execute --require-charge-cap --max-total-charge-usd 0.10)
 ```
 
 The CSV path is required for every command. There is no implicit sample-file fallback. Use

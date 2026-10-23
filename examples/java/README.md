@@ -180,11 +180,92 @@ The built-in JDK transport uses `HttpClient.Redirect.NEVER`. Run creation is att
 
 ## Journal and recovery
 
-The default append-only journal is `sample-output/generated/java-run-journal.jsonl`; override it with `--journal`. Its stages include `intent`, `run_created`, `run_finished`, `build_verified`, `resuming`, `creation_unknown`, and `complete`. `intent` is forced to disk before POST; failure blocks creation. The created Run and Dataset identities are persisted before polling. Malformed Journal lines fail closed. POSIX systems use owner-only `0600` permissions; Windows permissions are governed by the filesystem ACL and are not claimed to be POSIX `0600`.
+The CLI defaults to the append-only `JsonlFileJournal` at `sample-output/generated/java-run-journal.jsonl`; override it with `--journal`. The SDK defaults to an `InMemoryJournal`, which is process-local and cannot support recovery after the process exits. Production SDK callers that need cross-process recovery should explicitly configure a persistent journal:
+
+```java
+import com.apismith.instagram.transcriptapi.ClientConfig;
+import com.apismith.instagram.transcriptapi.JsonlFileJournal;
+import com.apismith.instagram.transcriptapi.TranscriptClient;
+import java.math.BigDecimal;
+import java.nio.file.Path;
+
+try (var journal = JsonlFileJournal.open(Path.of("sample-output/generated/java-sdk-journal.jsonl"))) {
+    var client = new TranscriptClient(ClientConfig.builder()
+        .token(System.getenv("APIFY_TOKEN"))
+        .requireChargeCap(true)
+        .maxTotalChargeUsd(new BigDecimal("0.10"))
+        .journal(journal)
+        .build());
+    var result = client.getTranscript("https://www.instagram.com/reels/your_reel_id/");
+    System.out.println(result.status());
+}
+```
+
+The client does not close or delete a supplied Journal. Reopen the same JSONL file in a later process before calling a Resume method. Journal stages include `intent`, `run_created`, `run_finished`, `build_verified`, `resuming`, `creation_unknown`, and `complete`. `intent` is forced to disk before POST; failure blocks creation. The created Run and Dataset identities are persisted before polling. Malformed Journal lines fail closed. POSIX systems use owner-only `0600` permissions; Windows permissions are governed by the filesystem ACL and are not claimed to be POSIX `0600`.
 
 ## Result contract
 
-Single results include `status`, actual `runStatus`, Run/Dataset IDs, Build identity and verification, `datasetComplete`, `text`, `segments`, raw `JsonNode` Actor items, attribution status, and any diagnostic. Bulk results include per-input statuses, counts, extras, and raw items. Profile results include posts, usernames, and raw items without requiring transcript fields. CSV returns a plan unless `--execute` is explicitly provided.
+The following tables describe the CLI's persisted JSON files. Nullable fields are present as JSON `null`; fields not marked nullable are always emitted. SDK methods return the corresponding Java records, except the CLI adds the `schemaVersion` and `mode` envelope and the CSV plan is a separate JSON shape.
+
+### Single URL
+
+| Field | JSON type | Nullable | Meaning |
+| --- | --- | --- | --- |
+| `schemaVersion` | number | No | Output schema version (`1`). |
+| `mode` | string | No | `single_url`. |
+| `status` | string | No | Transcript classification, such as `success`, `actor_error`, or `unknown`. |
+| `runStatus` | string | Yes | Actual terminal Apify Run status when known. |
+| `runId`, `datasetId`, `sourceUrl`, `actorId` | string | Yes | Run, Dataset, requested URL, and Actor identities. |
+| `buildNumber`, `buildId`, `buildVerification`, `buildEvidenceSource` | string | Yes | Requested/observed Build identity and verification evidence. |
+| `datasetComplete`, `datasetCompleteKnown` | boolean | No | Whether the single Dataset page is complete and whether that fact is known. |
+| `text` | string | Yes | Transcript text for a successful result. |
+| `segments` | array of JSON values | No | Timestamped segments; raw JSON values are retained. |
+| `segmentsCount`, `itemCount` | number | No | Segment and returned Actor-item counts. |
+| `rawItems` | array of JSON objects | No | Actor items with JSON scalar types preserved; known secret-named keys are filtered. |
+| `error`, `stage` | string | Yes | Redacted diagnostic and execution stage. |
+| `attributionVerification` | string | No | `verified`, `mismatch`, or `unknown`. |
+
+### Native Bulk
+
+| Field | JSON type | Nullable | Meaning |
+| --- | --- | --- | --- |
+| `schemaVersion`, `datasetComplete` | number, boolean | No | Schema version and single-page completeness. |
+| `mode`, `status`, `executionStatus`, `attributionVerification` | string | No | `native_bulk`, aggregate state, execution state, and attribution state. |
+| `runId`, `datasetId`, `error`, `stage` | string | Yes | Run/Dataset identities and diagnostics. |
+| `counts` | object of integer values | No | Counts by item status. |
+| `results` | array | No | One item per requested URL. Each has `url` (string), `status` (string), `text` (nullable string), `segments` and `items` (arrays), and `error` (nullable string). |
+| `extras` | array | No | Unmatched items; each has `status`, `reason` (strings), and `item` (JSON object). |
+| `rawItems` | array of JSON objects | No | Original Dataset items, subject only to known secret-key filtering. |
+
+### Profile
+
+| Field | JSON type | Nullable | Meaning |
+| --- | --- | --- | --- |
+| `schemaVersion` | number | No | Output schema version (`1`). |
+| `mode`, `status`, `executionStatus` | string | No | `profile_posts`, Profile aggregation state, and Run execution state. |
+| `runId`, `datasetId`, `error` | string | Yes | Run/Dataset identities and diagnostic. |
+| `datasetComplete` | boolean | No | Single-page Dataset completeness. |
+| `usernames` | array of strings | No | Requested usernames. |
+| `posts` | array | No | Profile metadata; each post has nullable `url`, `type`, `ownerUsername`, `caption`, `timestamp`, `videoUrl`, `videoDuration`, and `error`; `status` is a string and `raw` is the original Actor object. |
+| `rawItems` | array of JSON objects | No | Original Dataset items, with known secret-named keys filtered. |
+
+Profile metadata is not transcript output and does not require `text` or `segments`.
+
+### CSV Batch
+
+Without `--execute`, the CLI emits a plan (`mode=csv_batch_plan`) and creates no Runs. With `--execute`, it writes:
+
+| Field | JSON type | Nullable | Meaning |
+| --- | --- | --- | --- |
+| `schemaVersion`, `plannedRows`, `processedRows`, `unattemptedRows`, `concurrency` | number | No | Schema version, row counts, and serial concurrency (`1`). |
+| `mode`, `recordedAt`, `status` | string | No | `csv_batch_independent_runs`, timestamp, and aggregate row state. |
+| `stopped` | boolean | No | Whether a Journal failure or unknown create outcome stopped later rows. |
+| `counts` | object of integer values | No | Counts by row status. |
+| `rows` | array | No | Each row has `row`, `sourceUrl`, `status`, `segmentsCount` (strings/numbers), `segments` and `rawItems` (arrays), plus nullable Run/Dataset IDs, `text`, `datasetComplete`, and `error`. |
+| `rawItems` | array of JSON objects | No | Combined Actor items from processed rows. |
+| `error` | string | Yes | Batch-level diagnostic. |
+
+In Python's client, the transcript field is named `transcript`; Java uses `text`. Both expose `segments`. Java retains Actor JSON values and types in `rawItems`; output sanitization removes known secret-named keys, while business text is not rewritten. Diagnostics are redacted separately.
 
 | Python field | Java field |
 | --- | --- |
@@ -204,7 +285,7 @@ Use `Path`-based paths and quote values appropriately in each shell. POSIX outpu
 
 ## Security summary
 
-The client does not hard-code or load credentials. The built-in transport disables redirects, performs at most one create POST, persists Journal intent first, and sanitizes output keys/text before writing unique result files. Treat raw Actor data as sensitive even after sanitization.
+The client does not hard-code or load credentials. The built-in transport disables redirects, performs at most one create POST, persists Journal intent first, filters known secret-named output keys, and redacts diagnostic fields before writing unique result files. Transcript and raw Actor business text are preserved verbatim. Treat Actor data as sensitive.
 
 ## Validation and live acceptance boundary
 

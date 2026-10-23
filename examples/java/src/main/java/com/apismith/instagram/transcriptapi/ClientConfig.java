@@ -45,7 +45,10 @@ public final class ClientConfig {
         public Builder maxTotalChargeUsd(BigDecimal v){maxTotalChargeUsd=v;return this;} public Builder requireChargeCap(boolean v){requireChargeCap=v;return this;}
         public Builder requestTimeout(Duration v){requestTimeout=v;return this;} public Builder overallDeadline(Duration v){overallDeadline=v;return this;}
         public Builder pollInterval(Duration v){pollInterval=v;return this;} public Builder datasetPageLimit(int v){datasetPageLimit=v;return this;}
-        public Builder maxPolls(int v){maxPolls=v;return this;} public Builder journal(Journal v){journal=v;return this;}
+        public Builder maxPolls(int v){maxPolls=v;return this;}
+        /** Overrides the process-local InMemoryJournal. Production callers that need recovery
+         * across client/process restarts should explicitly pass JsonlFileJournal.open(path). */
+        public Builder journal(Journal v){journal=v;return this;}
         public Builder transport(Transport v){transport=v;return this;}
         public Builder sleeper(Sleeper v){sleeper=v;return this;} public Builder clock(Clock v){clock=v;return this;}
         public ClientConfig build(){

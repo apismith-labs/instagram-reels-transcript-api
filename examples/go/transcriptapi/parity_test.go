@@ -42,6 +42,39 @@ func TestBulkAttributionConservativeAndRawPreserving(t *testing.T) {
 	}
 }
 
+func TestBulkRealSuccessErrMsgShapes(t *testing.T) {
+	urls := []string{testURL, "https://instagram.com/reel/other123/", "https://instagram.com/reel/third123/"}
+	for _, errMsg := range []any{"", "   ", nil} {
+		items := []any{}
+		for i, rawURL := range urls {
+			items = append(items, map[string]any{"url": rawURL, "code": videoShortcode(rawURL), "errMsg": errMsg, "text": fmt.Sprintf("synthetic-%d", i), "segments": []any{map[string]any{"start": i}}})
+		}
+		rows, _, _, status := attributeBulkItems(urls, items, true)
+		if status != BulkAllSuccess || BulkExitCode(BulkResult{Status: status}) != 0 {
+			t.Fatalf("errMsg=%#v status=%s", errMsg, status)
+		}
+		for i, row := range rows {
+			if row.Status != BulkItemSuccessTranscript || row.Text != fmt.Sprintf("synthetic-%d", i) || len(row.Segments) != 1 {
+				t.Fatalf("errMsg=%#v row=%+v", errMsg, row)
+			}
+		}
+	}
+	for _, value := range []any{true, 7} {
+		rows, _, _, _ := attributeBulkItems(urls[:1], []any{map[string]any{"url": urls[0], "errMsg": value, "text": "synthetic"}}, true)
+		if rows[0].Status != BulkItemUnknown {
+			t.Fatalf("errMsg=%#v status=%s", value, rows[0].Status)
+		}
+	}
+	rows, _, _, _ := attributeBulkItems(urls[:1], []any{map[string]any{"url": urls[0], "errMsg": "failed", "text": "synthetic"}}, true)
+	if rows[0].Status != BulkItemActorError {
+		t.Fatal(rows[0])
+	}
+	rows, _, _, _ = attributeBulkItems(urls[:1], []any{map[string]any{"url": urls[0], "errMsg": "", "text": ""}}, true)
+	if rows[0].Status != BulkItemNoTranscript {
+		t.Fatal(rows[0])
+	}
+}
+
 func TestBulkValidationRejectsAliasesAndDatasetOverrunBeforePOST(t *testing.T) {
 	posts := 0
 	client := newClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -361,6 +394,40 @@ func TestCSVBatchCreationUnknownStopsBeforeNextRow(t *testing.T) {
 	result := client.GetTranscriptsFromCSV(context.Background(), rows)
 	if posts != 1 || result.Status != "stopped_unknown" || len(result.Rows) != 1 || result.Rows[0].Status != StatusCreationUnknown || CSVBatchExitCode(result) != 10 {
 		t.Fatalf("CSV resumed after unknown creation: %+v posts=%d", result, posts)
+	}
+}
+
+type failAppendJournal struct {
+	entries       []JournalEntry
+	count, failAt int
+}
+
+func (j *failAppendJournal) Append(_ context.Context, entry JournalEntry) error {
+	j.count++
+	if j.count == j.failAt {
+		return fmt.Errorf("synthetic journal failure")
+	}
+	j.entries = append(j.entries, entry)
+	return nil
+}
+
+func TestCSVBatchJournalIntentFailureStopsFollowingRows(t *testing.T) {
+	posts := 0
+	journal := &failAppendJournal{failAt: 4} // row 1 intent, created, terminal; row 2 intent fails
+	client := newClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodPost {
+			posts++
+			return respond(201, fmt.Sprintf(`{"data":{"id":"run-%d","defaultDatasetId":"ds-%d","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`, posts, posts)), nil
+		}
+		if strings.HasSuffix(r.URL.Path, "/items") {
+			return respond(200, `[{"url":"https://instagram.com/reel/first123/","text":"ok","segments":[]}]`), nil
+		}
+		return respond(200, fmt.Sprintf(`{"data":{"id":"run-%d","status":"SUCCEEDED","defaultDatasetId":"ds-%d","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}`, posts, posts)), nil
+	}), journal, nil)
+	rows := []CSVInputRow{{Row: 2, URL: "https://instagram.com/reel/first123/"}, {Row: 3, URL: "https://instagram.com/reel/second123/"}, {Row: 4, URL: "https://instagram.com/reel/third123/"}}
+	got := client.GetTranscriptsFromCSV(context.Background(), rows)
+	if posts != 1 || got.Status != "stopped_unknown" || len(got.Rows) != 2 || got.Rows[0].RunID != "run-1" || !strings.Contains(strings.ToLower(got.Rows[1].Error), "journal") || CSVBatchExitCode(got) == 0 {
+		t.Fatalf("posts=%d result=%+v", posts, got)
 	}
 }
 

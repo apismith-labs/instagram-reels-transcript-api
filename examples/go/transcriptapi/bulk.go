@@ -164,12 +164,18 @@ func attributeBulkItems(urls []string, items []any, complete bool) ([]BulkInputR
 			} else if code, ok := item["code"].(string); ok && code == videoShortcode(inputURL) {
 				row.AttributionVerification = "unverified"
 			}
+			actorError := false
 			if errMsg, exists := item["errMsg"]; exists && errMsg != nil {
-				if msg, ok := errMsg.(string); ok && strings.TrimSpace(msg) != "" {
-					row.Status, row.Error = BulkItemActorError, msg
-				} else {
+				msg, ok := errMsg.(string)
+				if !ok {
 					row.Status, row.Error = BulkItemUnknown, "Actor error field has an unsupported type"
+				} else if strings.TrimSpace(msg) != "" {
+					row.Status, row.Error = BulkItemActorError, msg
+					actorError = true
 				}
+			}
+			if row.Status == BulkItemUnknown || row.Status == BulkItemActorError {
+				// Preserve the conservative classification above.
 			} else if text, ok := item["text"].(string); ok && strings.TrimSpace(text) != "" {
 				row.Status, row.Text = BulkItemSuccessTranscript, text
 				if rawSegments, exists := item["segments"]; exists && rawSegments != nil {
@@ -187,7 +193,14 @@ func attributeBulkItems(urls []string, items []any, complete bool) ([]BulkInputR
 						}
 					}
 				}
-			} else if value, exists := item["text"]; !exists || value == nil || (func() bool { s, ok := value.(string); return ok && strings.TrimSpace(s) == "" })() {
+			} else if !actorError && (func() bool {
+				value, exists := item["text"]
+				if !exists || value == nil {
+					return true
+				}
+				s, ok := value.(string)
+				return ok && strings.TrimSpace(s) == ""
+			})() {
 				row.Status, row.Error = BulkItemNoTranscript, "Mapped Dataset item has no non-empty transcript"
 			} else {
 				row.Status, row.Error = BulkItemUnknown, "Transcript text has an unsupported type"

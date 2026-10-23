@@ -296,9 +296,13 @@ func (c *Client) appendJournal(ctx context.Context, entry JournalEntry) error {
 }
 
 func resultFromExecution(actorID, sourceURL string, exec runExecution) Result {
+	buildVerification := exec.BuildVerification
+	if buildVerification == "" || buildVerification == "pending" {
+		buildVerification = "unverified"
+	}
 	result := Result{Status: exec.ExecutionStatus, RunStatus: exec.RunStatus, RunID: exec.RunID, DatasetID: exec.DatasetID,
 		SourceURL: sourceURL, ActorID: actorID, BuildNumber: exec.BuildNumber, BuildID: exec.BuildID,
-		BuildVerification: exec.BuildVerification, DatasetComplete: exec.Complete, Segments: []Segment{}, RawItems: exec.Items,
+		BuildVerification: buildVerification, DatasetComplete: exec.Complete, Segments: []Segment{}, RawItems: exec.Items,
 		AttributionVerification: "unverified", Stage: exec.Stage, Error: exec.Error, Cause: exec.Cause}
 	if result.RawItems == nil {
 		result.RawItems = []any{}

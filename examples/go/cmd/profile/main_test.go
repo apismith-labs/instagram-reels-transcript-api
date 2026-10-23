@@ -34,3 +34,13 @@ func TestProfileCLIInvalidUsernameFailsBeforeEnvironment(t *testing.T) {
 		t.Fatalf("code=%d env reads=%d posts=%d", code, reads, transport.posts)
 	}
 }
+
+func TestProfileCLIExplicitEmptyDateFailsBeforeEnvironment(t *testing.T) {
+	reads := 0
+	transport := &testTransport{}
+	var stderr bytes.Buffer
+	code := run([]string{"--only-posts-newer-than=", "alice"}, func(string) string { reads++; return "synthetic" }, nil, &stderr, &http.Client{Transport: transport}, &testJournal{})
+	if code != 2 || reads != 0 || transport.posts != 0 {
+		t.Fatalf("code=%d env reads=%d posts=%d stderr=%s", code, reads, transport.posts, stderr.String())
+	}
+}

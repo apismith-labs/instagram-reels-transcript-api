@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/http"
 	"os"
 	"strconv"
@@ -61,20 +62,6 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, tr
 		fmt.Fprintln(stderr, "cannot close CSV:", closeErr)
 		return 2
 	}
-	if len(rows) == 0 {
-		fmt.Fprintln(stdout, `{"status":"empty","rowCount":0,"maximumRuns":0}`)
-		return 0
-	}
-	if *dryRun || !*execute {
-		encoded, _ := json.Marshal(map[string]any{"status": "dry_run", "mode": "csv_batch", "runMode": "one_independent_run_per_row", "rowCount": len(rows), "maximumRuns": len(rows), "concurrency": 1, "executeRequired": true, "rows": rows})
-		fmt.Fprintln(stdout, string(encoded))
-		return 0
-	}
-	token := strings.TrimSpace(getenv("APIFY_TOKEN"))
-	if token == "" {
-		fmt.Fprintln(stderr, "APIFY_TOKEN is required")
-		return 2
-	}
 	chargeRaw := strings.TrimSpace(*maxCharge)
 	if chargeRaw == "" {
 		chargeRaw = strings.TrimSpace(getenv("APIFY_MAX_TOTAL_CHARGE_USD"))
@@ -90,6 +77,30 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, tr
 	require := *requireFlag || getenv("APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD") == "1"
 	if require && charge == 0 {
 		fmt.Fprintln(stderr, "required charge cap is missing")
+		return 2
+	}
+	if len(rows) == 0 {
+		fmt.Fprintln(stdout, `{"status":"empty","rowCount":0,"maximumRuns":0}`)
+		return 0
+	}
+	if *dryRun || !*execute {
+		plan := map[string]any{"status": "dry_run", "mode": "csv_batch", "runMode": "one_independent_run_per_row", "rowCount": len(rows), "maximumRuns": len(rows), "concurrency": 1, "executeRequired": true, "rows": rows}
+		if chargeRaw != "" {
+			total, ok := estimateMaximumRunCapsTotal(len(rows), chargeRaw)
+			if !ok {
+				fmt.Fprintln(stderr, "could not calculate estimated maximum Run caps total")
+				return 2
+			}
+			plan["perRunCapUsd"] = chargeRaw
+			plan["estimatedMaximumRunCapsTotalUsd"] = total
+		}
+		encoded, _ := json.Marshal(plan)
+		fmt.Fprintln(stdout, string(encoded))
+		return 0
+	}
+	token := strings.TrimSpace(getenv("APIFY_TOKEN"))
+	if token == "" {
+		fmt.Fprintln(stderr, "APIFY_TOKEN is required")
 		return 2
 	}
 	if journal == nil {
@@ -123,4 +134,13 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, tr
 	}{result, path})
 	fmt.Fprintln(stdout, string(encoded))
 	return transcriptapi.CSVBatchExitCode(result)
+}
+
+func estimateMaximumRunCapsTotal(maximumRuns int, perRunCap string) (string, bool) {
+	cap, ok := new(big.Rat).SetString(perRunCap)
+	if !ok || cap.Sign() <= 0 || maximumRuns < 0 {
+		return "", false
+	}
+	total := new(big.Rat).Mul(cap, new(big.Rat).SetInt64(int64(maximumRuns)))
+	return total.FloatString(2), true
 }

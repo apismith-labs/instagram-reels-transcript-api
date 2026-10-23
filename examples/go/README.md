@@ -93,6 +93,11 @@ accepted. Empty files and empty datasets create no Runs. Every non-empty data ro
 task and can incur a separate charge; rows execute serially, and an unknown creation or persistence
 state stops the batch from launching more Runs.
 
+`--max-total-charge-usd` is a **per-Run** cap, not a total CSV budget. The default dry-run plan
+includes `perRunCapUsd` and `estimatedMaximumRunCapsTotalUsd` only when a positive cap is available;
+the latter is `maximumRuns × perRunCapUsd`, an arithmetic estimate rather than a final-bill limit.
+Dry-run never reads `APIFY_TOKEN` or creates Runs. An empty CSV creates no Run.
+
 Every CLI accepts `--help`, `--output-dir`, and `--journal`; mode-specific options are shown by each
 help page. Outputs use unique files under `sample-output/generated/` by default. JSON retains the
 full transcript/segments or Profile posts and original Actor items; stdout is a compact JSON result.
@@ -166,13 +171,21 @@ module. For a checkout under development, use a local `replace` directive rather
 unreleased APIs are available from v0.8.0. Future nested-module tags follow
 `examples/go/vX.Y.Z` and must point to the same commit as the corresponding root release tag.
 
-## Result states and limits
+## Result states and exit codes
 
 Single URL retains the existing exit code contract: `success` 0, input/configuration error 2,
 `actor_error` 4, `empty` 5, `no_transcript` 6, `unknown` 7, `transport_error` 8, `run_failed` 9,
-and `creation_unknown` 10. Bulk returns `all_success`, `partial_success`, `all_failed`, or `unknown`
-and preserves per-input statuses. Profile returns `success`, `empty`, `actor_error`, or `unknown`;
-it does not classify missing transcript text as failure. CSV records successes and failures per row.
+and `creation_unknown` 10. This `ExitCode` table applies to Single URL execution states. Native Bulk
+uses `BulkExitCode`: `all_success` 0, `partial_success` 11, `all_failed` 12, `unknown` 13; execution
+failures retain their Single URL code (for example, `creation_unknown` 10). Profile returns 0 for
+`success`/`empty`, 4 for `actor_error`, 7 for `unknown`, and uses execution failure codes such as 8/9/10.
+CSV returns 2 for invalid input, 8/9/10 for transport/run/creation-unknown failures, 11 for other
+row failures, and 0 when all rows succeed or there is no work. Non-zero exits can still leave a
+unique result file containing completed rows; inspect it to recover partial results.
+
+Place CLI options before positional usernames or URLs. Explicitly passing an empty Profile date
+filter is rejected. CSV skips physically empty rows; a non-empty row with a blank URL is rejected
+before execution. A stopped CSV result includes `plannedRows` and `unattemptedRows`.
 
 Dataset reads are single-page only. Native Bulk, Profile, and CSV Batch have offline coverage but
 no new Go Live acceptance in this release. Go does not yet implement every Python or Node.js API,

@@ -78,7 +78,7 @@ func ReadCSVBatch(reader io.Reader) ([]CSVInputRow, error) {
 
 // GetTranscriptsFromCSV executes one independent Run per input row, serially.
 func (c *Client) GetTranscriptsFromCSV(ctx context.Context, rows []CSVInputRow) CSVBatchResult {
-	result := CSVBatchResult{Status: "empty", Rows: make([]CSVRowResult, 0, len(rows)), Counts: map[Status]int{}}
+	result := CSVBatchResult{Status: "empty", Rows: make([]CSVRowResult, 0, len(rows)), Counts: map[Status]int{}, PlannedRows: len(rows)}
 	validated := make([]CSVInputRow, 0, len(rows))
 	for _, row := range rows {
 		valid, err := ValidateVideoURL(row.URL)
@@ -103,7 +103,7 @@ func (c *Client) GetTranscriptsFromCSV(ctx context.Context, rows []CSVInputRow) 
 		} else {
 			result.Failed++
 		}
-		if item.Status == StatusCreationUnknown || item.Stage == "journal_run_created" || item.Stage == "journal_terminal" {
+		if item.Status == StatusCreationUnknown || item.Stage == "journal_intent" || item.Stage == "journal_run_created" || item.Stage == "journal_terminal" {
 			result.Status = "stopped_unknown"
 			break
 		}
@@ -120,6 +120,7 @@ func (c *Client) GetTranscriptsFromCSV(ctx context.Context, rows []CSVInputRow) 
 			result.Status = "partial_success"
 		}
 	}
+	result.UnattemptedRows = result.PlannedRows - len(result.Rows)
 	return result
 }
 

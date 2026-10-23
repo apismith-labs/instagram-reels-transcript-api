@@ -323,9 +323,11 @@ type CSVRowResult struct {
 }
 
 type CSVBatchResult struct {
-	Status  string         `json:"status"`
-	Rows    []CSVRowResult `json:"rows"`
-	Success int            `json:"success"`
-	Failed  int            `json:"failed"`
-	Counts  map[Status]int `json:"counts"`
+	Status          string         `json:"status"`
+	Rows            []CSVRowResult `json:"rows"`
+	PlannedRows     int            `json:"plannedRows"`
+	UnattemptedRows int            `json:"unattemptedRows"`
+	Success         int            `json:"success"`
+	Failed          int            `json:"failed"`
+	Counts          map[Status]int `json:"counts"`
 }

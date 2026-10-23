@@ -752,6 +752,9 @@ func TestGetTranscriptNeverReturnsPendingAttributionInSerializedResults(t *testi
 			if got.Status != tc.wantStatus || got.Stage != tc.wantStage {
 				t.Fatalf("status/stage=%s/%s, want %s/%s", got.Status, got.Stage, tc.wantStatus, tc.wantStage)
 			}
+			if got.BuildVerification == "pending" || got.BuildVerification == "" {
+				t.Fatalf("terminal result leaked non-terminal Build verification: %+v", got)
+			}
 			if got.RunID != "" && (got.RunID != "run-1" || got.DatasetID == "" || got.BuildNumber == "" || got.BuildID == "") {
 				t.Fatalf("Run/Build evidence lost: %+v", got)
 			}

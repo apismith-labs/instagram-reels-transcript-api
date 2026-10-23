@@ -47,10 +47,13 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, tr
 	request := transcriptapi.ProfileRequest{Usernames: flags.Args(), OnlyPostsNewerThan: *newer}
 	visited := map[string]bool{}
 	flags.Visit(func(item *flag.Flag) { visited[item.Name] = true })
+	if visited["only-posts-newer-than"] && strings.TrimSpace(*newer) == "" {
+		fmt.Fprintln(stderr, "--only-posts-newer-than requires a non-empty date or relative period")
+		return 2
+	}
 	if visited["results-limit"] {
 		request.ResultsLimit = limit
 	}
-	flags.Visit(func(item *flag.Flag) { visited[item.Name] = true })
 	if visited["skip-pinned-posts"] {
 		request.SkipPinnedPosts = skipPinned
 	}

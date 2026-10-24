@@ -76,6 +76,9 @@ impl ConfigBuilder {
         self.charge_cap = Some(value.into());
         self
     }
+    #[deprecated(
+        note = "every Actor-creating operation always requires a positive per-Run charge cap"
+    )]
     pub fn require_charge_cap(self, _value: bool) -> Self {
         self
     }

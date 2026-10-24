@@ -6,6 +6,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+import hashlib
 from pathlib import Path
 
 
@@ -184,6 +185,114 @@ MUTATIONS = [
         ],
         "left: Success",
     ),
+    (
+        "Profile attribution accepts an unrequested owner",
+        "src/profile.rs",
+        "Some(owner) => requested.contains(&owner.to_ascii_lowercase()),",
+        "Some(_owner) => true,",
+        ["--lib", "profile::tests::profile_owner_outside_requested_accounts_is_unknown_not_positionally_assigned"],
+        "owner outside the request set",
+    ),
+    (
+        "Profile actor error priority reversed",
+        "src/profile.rs",
+        "let status = if actor_error {\n        ProfileStatus::ActorError\n    } else if !page.complete || unknown {\n        ProfileStatus::Unknown\n    } else if posts.is_empty() {",
+        "let status = if !page.complete || unknown {\n        ProfileStatus::Unknown\n    } else if actor_error {\n        ProfileStatus::ActorError\n    } else if posts.is_empty() {",
+        ["--lib", "profile::tests::profile_actor_error_has_priority_over_unknown"],
+        "Actor errors outrank unrelated unknown rows",
+    ),
+    (
+        "CSV creation-unknown does not stop later scheduling",
+        "src/csv_batch.rs",
+        "matches!(error.kind, ErrorKind::CreationUnknown | ErrorKind::Journal)",
+        "error.kind == ErrorKind::Journal",
+        ["--lib", "csv_batch::tests::csv_creation_unknown_stops_before_scheduling_later_rows"],
+        "creation_unknown must stop later CSV scheduling",
+    ),
+    (
+        "CSV plan counts invalid rows as billable Runs",
+        "src/csv_batch.rs",
+        "planned.iter().filter(|r| r.valid).count()",
+        "planned.len()",
+        ["--lib", "csv_batch::tests::csv_plan_counts_only_independently_valid_rows"],
+        "invalid rows must not be counted as billable Runs",
+    ),
+    (
+        "Single Resume creates a new Run",
+        "src/execute.rs",
+        "    let run = poll_run(config, run_id, deadline)?;\n    let run_status = run\n        .get(\"status\")",
+        "    let _retry_probe = post_run(config, &json!({}));\n    let run = poll_run(config, run_id, deadline)?;\n    let run_status = run\n        .get(\"status\")",
+        ["--lib", "execute::resume_tests::resume_single_is_get_only_and_recovers_existing_run"],
+        "Resume must remain GET-only",
+    ),
+    (
+        "JSONL journal persistence removed",
+        "src/journal.rs",
+        "file.write_all(&encoded)\n            .and_then(|_| file.write_all(b\"\\n\"))\n            .and_then(|_| file.sync_all())",
+        "file.sync_all()",
+        ["--lib", "journal::tests::jsonl_file_journal_persists_and_reopens_with_private_permissions"],
+        "durable row must survive reopening",
+    ),
+    (
+        "Profile username duplicate comparison becomes case-sensitive",
+        "src/validators.rs",
+        "!seen.insert(username.to_ascii_lowercase())",
+        "!seen.insert(username.clone())",
+        ["--lib", "validators::tests::usernames_reject_case_only_duplicate_without_silently_merging"],
+        "case-insensitive duplicates must be rejected",
+    ),
+    (
+        "CSV prior unresolved stages no longer block replay",
+        "src/csv_batch.rs",
+        '"intent" | "run_created" | "run_terminal" | "creation_unknown"',
+        '"creation_unknown"',
+        ["--lib", "csv_batch::tests::csv_prior_run_states_stop_without_reposting_and_preserve_run_identity"],
+        "unresolved prior CSV state must block replay without creating a new Run",
+    ),
+    (
+        "CSV Journal failure no longer stops later rows",
+        "src/csv_batch.rs",
+        "matches!(error.kind, ErrorKind::CreationUnknown | ErrorKind::Journal)",
+        "error.kind == ErrorKind::CreationUnknown",
+        ["--lib", "csv_batch::tests::csv_journal_write_failures_stop_before_later_rows"],
+        "Journal failure must stop the whole CSV batch",
+    ),
+    (
+        "Profile single-account missing-owner policy removed",
+        "src/profile.rs",
+        "None => usernames.len() == 1,",
+        "None => false,",
+        ["--lib", "profile::tests::profile_single_account_missing_owner_is_allowed_when_metadata_is_valid"],
+        "single-account missing-owner policy must stay permissive",
+    ),
+    (
+        "Profile empty metadata incorrectly accepted",
+        "src/profile.rs",
+        "Value::String(value) => !value.trim().is_empty(),",
+        "Value::String(_value) => true,",
+        ["--lib", "profile::tests::profile_null_empty_blank_and_wrong_type_metadata_are_not_credible"],
+        "empty profile metadata must not identify a post",
+    ),
+    (
+        "Profile Actor error moved behind identifiability",
+        "src/profile.rs",
+        """let status = if err.is_some() {
+            actor_error = true;
+            ProfileStatus::ActorError
+        } else if !identifiable {
+            unknown = true;
+            ProfileStatus::Unknown
+        } else {""",
+        """let status = if !identifiable {
+            unknown = true;
+            ProfileStatus::Unknown
+        } else if err.is_some() {
+            actor_error = true;
+            ProfileStatus::ActorError
+        } else {""",
+        ["--lib", "profile::tests::profile_actor_error_precedes_identifiability_and_preserves_sanitized_diagnostics"],
+        "errMsg must take priority over URL identifiability",
+    ),
 ]
 
 
@@ -209,7 +318,9 @@ def run_mutation(
             raise RuntimeError(f"{name}: mutation anchor must occur exactly once")
         path.write_text(content.replace(before, after, 1), encoding="utf-8")
         env = dict(__import__("os").environ)
-        env["CARGO_TARGET_DIR"] = str(temp_root / "target")
+        # Each mutant gets an independent target directory so no compiled artifact
+        # from another source mutation can satisfy its runtime witness.
+        env["CARGO_TARGET_DIR"] = str(Path(directory) / "target")
         result = subprocess.run(
             ["cargo", "test", "--offline", *test_args],
             cwd=mutant,
@@ -233,6 +344,8 @@ def run_mutation(
 
 
 def main() -> int:
+    protected = [ROOT / entry[1] for entry in MUTATIONS]
+    before_hashes = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in protected}
     baseline = subprocess.run(
         ["cargo", "test", "--offline", "--test", "single_contract"],
         cwd=ROOT,
@@ -248,6 +361,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="rust-g1-mutation-gate-") as directory:
         root = Path(directory)
         results = [run_mutation(*mutation, root) for mutation in MUTATIONS]
+    after_hashes = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in protected}
+    if before_hashes != after_hashes:
+        print("Mutation gate modified original workspace sources; refusing to pass.")
+        return 2
     print(f"Mutation witnesses: {sum(results)}/{len(results)}")
     return 0 if all(results) else 1
 

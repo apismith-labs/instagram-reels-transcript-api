@@ -52,6 +52,9 @@ jobs:
       - name: Build
         run: cargo build --all-targets --locked
 
+      - name: Build and run external consumer crate
+        run: cargo run --manifest-path ci-consumer/Cargo.toml --locked --offline
+
       - name: Mutation gate
         env:
           MUTATION_LOG: ${{ runner.temp }}/rust-mutation-gate.log
@@ -68,8 +71,8 @@ jobs:
           if not match:
               raise SystemExit("Mutation summary missing; refusing to pass.")
           detected, total = map(int, match.groups())
-          if total < 19 or detected != total:
-            raise SystemExit(f"Mutation gate failed: {detected}/{total}; requires all and at least 19.")
+          if total < 31 or detected != total:
+            raise SystemExit(f"Mutation gate failed: {detected}/{total}; requires all and at least 31.")
           print(f"Mutation count gate: {detected}/{total} detected.")
           PY
 

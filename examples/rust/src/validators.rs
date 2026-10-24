@@ -84,6 +84,76 @@ pub fn validate_charge_cap(raw: Option<&str>) -> Result<String> {
     Ok(raw.to_owned())
 }
 
+/// Validate Profile usernames without normalizing or silently merging caller input.
+pub fn validate_usernames(usernames: &[String]) -> Result<Vec<String>> {
+    let fail = || {
+        Error::new(
+            ErrorKind::Input,
+            "input_validation",
+            "usernames must be non-empty Instagram usernames without @ or whitespace",
+        )
+    };
+    if usernames.is_empty() {
+        return Err(fail());
+    }
+    let mut seen = std::collections::HashSet::new();
+    for username in usernames {
+        if username.is_empty()
+            || username.starts_with('@')
+            || username.starts_with('.')
+            || username.ends_with('.')
+            || username.contains("..")
+            || !username
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_'))
+            || !seen.insert(username.to_ascii_lowercase())
+        {
+            return Err(fail());
+        }
+    }
+    Ok(usernames.to_vec())
+}
+
+/// Validate the Actor's documented relative date shapes (`YYYY-MM-DD` or `Nd/Nw/Nm/Ny`).
+pub fn validate_only_posts_newer_than(value: Option<&str>) -> Result<Option<String>> {
+    let Some(value) = value else { return Ok(None) };
+    let year = value.get(0..4).and_then(|v| v.parse::<u16>().ok());
+    let month = value.get(5..7).and_then(|v| v.parse::<u8>().ok());
+    let day = value.get(8..10).and_then(|v| v.parse::<u8>().ok());
+    let valid_date = value.len() == 10
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && value
+            .bytes()
+            .enumerate()
+            .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+        && year.is_some_and(|y| y > 0)
+        && month.is_some_and(|m| (1..=12).contains(&m))
+        && day.is_some_and(|d| {
+            let Some(month) = month else { return false };
+            let Some(year) = year else { return false };
+            let last_day = match month {
+                2 if year % 400 == 0 || (year % 4 == 0 && year % 100 != 0) => 29,
+                2 => 28,
+                4 | 6 | 9 | 11 => 30,
+                _ => 31,
+            };
+            (1..=last_day).contains(&d)
+        });
+    let relative = value
+        .strip_suffix(['d', 'w', 'm', 'y'])
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) && n != "0");
+    if valid_date || relative {
+        Ok(Some(value.to_owned()))
+    } else {
+        Err(Error::new(
+            ErrorKind::Input,
+            "input_validation",
+            "onlyPostsNewerThan must be YYYY-MM-DD or a positive integer followed by d, w, m, or y",
+        ))
+    }
+}
+
 pub fn encode_actor_id(actor_id: &str) -> String {
     let normalized = actor_id.replace('/', "~");
     let mut encoded = String::new();
@@ -173,6 +243,67 @@ mod tests {
         assert_eq!(
             encode_actor_id("apple_yang/instagram-transcripts-scraper"),
             "apple_yang~instagram-transcripts-scraper"
+        );
+    }
+
+    #[test]
+    fn usernames_are_validated_without_case_insensitive_duplicates() {
+        for bad in [
+            vec![],
+            vec!["@alice"],
+            vec!["a b"],
+            vec![".alice"],
+            vec!["alice."],
+            vec!["a..b"],
+            vec!["a-b"],
+            vec!["Alice", "alice"],
+        ] {
+            assert!(
+                validate_usernames(&bad.into_iter().map(str::to_owned).collect::<Vec<_>>())
+                    .is_err()
+            );
+        }
+        assert_eq!(
+            validate_usernames(&["alice_1".into(), "b.c".into()]).unwrap(),
+            ["alice_1", "b.c"]
+        );
+    }
+
+    #[test]
+    fn usernames_reject_case_only_duplicate_without_silently_merging() {
+        let duplicates = vec!["Alice".to_owned(), "alice".to_owned()];
+        assert!(
+            validate_usernames(&duplicates).is_err(),
+            "case-insensitive duplicates must be rejected"
+        );
+        assert_eq!(
+            duplicates.len(),
+            2,
+            "validation must not mutate or merge caller input"
+        );
+    }
+
+    #[test]
+    fn profile_date_filter_accepts_only_documented_shapes() {
+        for value in ["2026-10-24", "1d", "3w", "2m", "1y"] {
+            assert!(validate_only_posts_newer_than(Some(value)).is_ok());
+        }
+        for value in [
+            "2026-13-40",
+            "2026-02-29",
+            "2025-04-31",
+            "2026-01-01T00:00:00Z",
+            "0d",
+            "-1d",
+            "y",
+        ] {
+            assert!(validate_only_posts_newer_than(Some(value)).is_err());
+        }
+        assert_eq!(
+            validate_only_posts_newer_than(Some("2024-02-29"))
+                .unwrap()
+                .as_deref(),
+            Some("2024-02-29")
         );
     }
 }

@@ -404,7 +404,7 @@ fn journal_intent_is_written_before_post() {
     assert_eq!(records[0].stage, "intent");
     assert_eq!(records[1].stage, "run_created");
     assert_eq!(
-        records[0].context.as_ref().unwrap()["sessionid"],
+        records[0].context.as_ref().unwrap()["input"]["sessionid"],
         Value::Null
     );
     assert_eq!(t.posts(), 1);
@@ -553,14 +553,16 @@ fn response_body_never_enters_http_diagnostic() {
 }
 
 #[test]
-fn legacy_csv_binary_is_disabled() {
-    // Proves the historical billable CSV implementation cannot be reached as a Cargo binary.
+fn legacy_csv_binary_delegates_to_the_canonical_csv_cli() {
+    // The old binary is only a shim; its help is handled by the one canonical CSV CLI.
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_batch_csv"))
+        .arg("--help")
         .output()
         .expect("legacy binary should launch");
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("is disabled"));
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("csv"));
+    assert!(!stdout.contains("disabled"));
 }
 
 #[test]
@@ -577,6 +579,25 @@ fn cli_rejects_invalid_input_before_credentials_or_network() {
     assert!(stdout.is_empty());
     assert!(stderr.contains("ResultStatus: configuration_error"));
     assert!(!stderr.contains("synthetic-cli-token"));
+}
+
+#[test]
+fn cli_csv_defaults_to_pure_plan_without_credentials() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("input.csv");
+    std::fs::write(&input, "url\nhttps://instagram.com/reel/synthetic\n").unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_instagram-transcripts"))
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .args(["csv"])
+        .arg(&input)
+        .output()
+        .expect("offline CSV plan should launch");
+    assert_eq!(output.status.code(), Some(0));
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(plan["mode"], "plan");
+    assert_eq!(plan["maximumActorRuns"], 1);
+    assert!(plan.get("runId").is_none());
 }
 
 #[test]

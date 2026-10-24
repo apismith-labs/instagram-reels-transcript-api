@@ -296,7 +296,7 @@ pub(crate) fn execute_bulk(config: &Config, urls: &[String], options: BulkOption
         build_verification: "pending".into(),
         cap: Some(config.charge_cap.clone()),
         input_digest: Some(format!("{:016x}", hasher.finish())),
-        context: Some(input.clone()),
+        context: Some(json!({"mode":"native_bulk","input":input})),
         error: None,
     };
     if let Err(e) = config.journal.append(&intent) {
@@ -487,6 +487,245 @@ pub(crate) fn execute_bulk(config: &Config, urls: &[String], options: BulkOption
     result
 }
 
+/// Resume an existing Native Bulk Run using GET requests only.
+pub(crate) fn resume_bulk(config: &Config, run_id: &str, urls: &[String]) -> BulkResult {
+    let plan = match plan_bulk(urls) {
+        Ok(p) => p,
+        Err(e) => {
+            return BulkResult::operation_error(
+                "input_error",
+                &e.message,
+                None,
+                Some(run_id.into()),
+                None,
+            )
+        }
+    };
+    let record = match config.journal.latest(run_id) {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return BulkResult::operation_error(
+                "journal_error",
+                "no journal record exists for this Run ID",
+                Some(plan.tasks.len()),
+                Some(run_id.into()),
+                None,
+            )
+        }
+        Err(e) => {
+            return BulkResult::operation_error(
+                "journal_error",
+                &e.message,
+                Some(plan.tasks.len()),
+                Some(run_id.into()),
+                None,
+            )
+        }
+    };
+    if record.run_id.as_deref() != Some(run_id) || record.mode != "native_bulk" {
+        return BulkResult::operation_error(
+            "journal_error",
+            "journal mode or Run ID does not match Native Bulk resume",
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            None,
+        );
+    }
+    let Some(context) = record.context.as_ref() else {
+        return BulkResult::operation_error(
+            "journal_error",
+            "journal input is missing",
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            None,
+        );
+    };
+    let input_context = context.get("inputContext").unwrap_or(context);
+    let input = if input_context.get("mode").and_then(Value::as_str) == Some("native_bulk") {
+        input_context.get("input").unwrap_or(&Value::Null)
+    } else {
+        context
+    };
+    let Some(input_object) = input.as_object() else {
+        return BulkResult::operation_error(
+            "journal_error",
+            "journal Native Bulk input is incomplete",
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            None,
+        );
+    };
+    if input_object.keys().any(|key| {
+        ![
+            "bulkUrls",
+            "resultsLimit",
+            "skipPinnedPosts",
+            "includeSharesCount",
+        ]
+        .contains(&key.as_str())
+    }) || input_object
+        .get("resultsLimit")
+        .is_some_and(|v| !v.as_u64().is_some_and(|n| n > 0))
+        || input_object
+            .get("skipPinnedPosts")
+            .is_some_and(|v| !v.is_boolean())
+        || input_object
+            .get("includeSharesCount")
+            .is_some_and(|v| !v.is_boolean())
+    {
+        return BulkResult::operation_error(
+            "journal_error",
+            "journal Native Bulk input contains unsupported or invalid fields",
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            None,
+        );
+    }
+    let journal_urls: Vec<String> = input
+        .get("bulkUrls")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    if journal_urls != plan.actor_urls {
+        return BulkResult::operation_error(
+            "journal_error",
+            "provided bulk URLs do not exactly match journal input",
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            None,
+        );
+    }
+    let deadline = config.clock.now() + config.poll_timeout;
+    let run = match poll_run(config, run_id, deadline) {
+        Ok(v) => v,
+        Err(e) => {
+            return BulkResult::operation_error(
+                "transport_error",
+                &e.message,
+                Some(plan.tasks.len()),
+                Some(run_id.into()),
+                None,
+            )
+        }
+    };
+    let run_status = run
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("UNKNOWN")
+        .to_owned();
+    let dataset_id = run
+        .get("defaultDatasetId")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let build_number = read_build_number(&run);
+    let build_id = run
+        .get("buildId")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let verified = build_number.as_deref() == Some(config.build_number.as_str())
+        && build_id.as_deref() == Some(config.build_id.as_str());
+    let mut run_terminal = record;
+    run_terminal.stage = "run_terminal".into();
+    run_terminal.run_status = Some(run_status.clone());
+    run_terminal.dataset_id = dataset_id.clone();
+    run_terminal.build_number = build_number.clone();
+    run_terminal.build_id = build_id.clone();
+    run_terminal.build_verification = if verified {
+        "verified"
+    } else if build_number.is_some() || build_id.is_some() {
+        "mismatch"
+    } else {
+        "unknown"
+    }
+    .into();
+    run_terminal.error = if run_status != "SUCCEEDED" {
+        Some(diagnostic(&format!(
+            "Actor Run ended with status {run_status}"
+        )))
+    } else if !verified {
+        Some(diagnostic(
+            "Actor Build identity did not match the configured Build",
+        ))
+    } else {
+        None
+    };
+    if let Err(e) = config.journal.append(&run_terminal) {
+        return BulkResult::operation_error(
+            "journal_error",
+            &e.message,
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            dataset_id,
+        );
+    }
+    if run_status != "SUCCEEDED" {
+        return BulkResult::operation_error(
+            "run_failed",
+            &format!("Actor Run ended with status {run_status}"),
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            dataset_id,
+        );
+    }
+    if !verified {
+        return BulkResult::operation_error(
+            "build_mismatch",
+            "Actor Build identity did not match the configured Build",
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            dataset_id,
+        );
+    }
+    let Some(dataset_id) = dataset_id else {
+        return BulkResult::operation_error(
+            "dataset_error",
+            "successful Run omitted Dataset ID",
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            None,
+        );
+    };
+    let page = match get_dataset_page(config, &dataset_id, deadline) {
+        Ok(p) => p,
+        Err(e) => {
+            return BulkResult::operation_error(
+                "dataset_error",
+                &e.message,
+                Some(plan.tasks.len()),
+                Some(run_id.into()),
+                Some(dataset_id),
+            )
+        }
+    };
+    let mut result = attribute_bulk(&plan, &page.items, page.complete);
+    result.run_id = Some(run_id.into());
+    result.dataset_id = Some(dataset_id.clone());
+    result.run_status = Some(run_status.clone());
+    result.build_number = build_number.clone();
+    result.build_id = build_id.clone();
+    result.build_verification = BuildVerification::Verified;
+    result.dataset_complete = page.complete;
+    let mut classified = run_terminal;
+    classified.stage = "classified".into();
+    classified.error = result.error.clone();
+    if let Err(e) = config.journal.append(&classified) {
+        return BulkResult::operation_error(
+            "journal_error",
+            &e.message,
+            Some(plan.tasks.len()),
+            Some(run_id.into()),
+            Some(dataset_id),
+        );
+    }
+    result
+}
+
 fn blank_result(planned: Option<usize>) -> BulkResult {
     BulkResult {
         status: BatchStatus::InputError,
@@ -531,7 +770,7 @@ enum Evidence {
     Extra(ExtraReason, Vec<usize>, Attribution, String),
 }
 
-fn attribute_bulk(plan: &BulkPlan, items: &[Value], complete: bool) -> BulkResult {
+pub(crate) fn attribute_bulk(plan: &BulkPlan, items: &[Value], complete: bool) -> BulkResult {
     let mut pending: Vec<Vec<(usize, Value, Attribution)>> = vec![Vec::new(); plan.tasks.len()];
     let mut forced_unknown: HashMap<usize, (Attribution, String)> = HashMap::new();
     let mut extras: Vec<ExtraItem> = Vec::new();

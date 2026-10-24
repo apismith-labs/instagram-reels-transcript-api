@@ -1,4 +1,5 @@
 use super::*;
+use crate::journal::Journal;
 use crate::transport::{Clock, Request, Response, Transport, TransportError, TransportErrorKind};
 use std::{
     collections::VecDeque,
@@ -215,6 +216,7 @@ fn duplicate_typed_fallback_retains_observed_attribution() {
         .all(|extra| extra.reason == ExtraReason::Duplicate && extra.affected_task_indexes == [0]));
     assert_counts(&result, (0, 0, 1, 0, 2));
     assert_eq!(result.status, BatchStatus::Unknown);
+    assert_eq!(result.results[0].status, TaskStatus::Unknown);
     assert_eq!(result.exit_code(), 2);
 }
 
@@ -501,7 +503,7 @@ fn fixture_config(transport: Arc<FakeTransport>) -> Config {
         .max_total_charge_usd("0.10")
         .transport(transport)
         .clock(Arc::new(FakeClock))
-        .journal(journal)
+        .journal(journal.clone())
         .build()
         .unwrap()
 }
@@ -898,4 +900,200 @@ fn normal_bulk_serialization_uses_frozen_camel_case_schema_and_counts() {
         "secret persisted"
     );
     assert!(serialized.contains("caption api_key=[REDACTED]"));
+}
+
+#[test]
+fn resume_bulk_reads_existing_run_and_never_posts() {
+    let journal = Arc::new(crate::journal::InMemoryJournal::default());
+    journal.append(&JournalRecord { stage: "run_created".into(), mode: "native_bulk".into(), actor_id: "actor".into(),
+        source_url: None, run_id: Some("resume-bulk-run".into()), dataset_id: None, run_status: None,
+        build_number: Some("0.0.50".into()), build_id: Some("aJLRmMdQapLQRT4sJ".into()), build_verification: "pending".into(),
+        cap: Some("0.10".into()), input_digest: None,
+        context: Some(json!({"mode":"native_bulk","input":{"bulkUrls":["https://instagram.com/reel/ABC"],"resultsLimit":12}})), error: None }).unwrap();
+    let transport = Arc::new(FakeTransport::new(vec![
+        Response::json(
+            200,
+            json!({"data":{"id":"resume-bulk-run","status":"SUCCEEDED","defaultDatasetId":"resume-bulk-dataset","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}),
+        ),
+        Response::json(
+            200,
+            json!([usable(
+                "https://instagram.com/reel/ABC",
+                "resumed transcript"
+            )]),
+        ),
+    ]));
+    let config = Config::builder()
+        .token("synthetic-test-token")
+        .max_total_charge_usd("0.10")
+        .transport(transport.clone())
+        .clock(Arc::new(FakeClock))
+        .journal(journal)
+        .build()
+        .unwrap();
+    let result = resume_bulk(
+        &config,
+        "resume-bulk-run",
+        &urls(&["https://instagram.com/reel/ABC"]),
+    );
+    assert_eq!(result.status, BatchStatus::Success);
+    assert_eq!(
+        result.results[0].text.as_deref(),
+        Some("resumed transcript")
+    );
+    assert_eq!(
+        transport
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| **e == "post")
+            .count(),
+        0
+    );
+}
+
+fn resume_bulk_fixture(
+    stage: &str,
+    run_id: Option<&str>,
+    context: Value,
+    responses: Vec<Response>,
+    dataset_page_limit: usize,
+) -> (
+    BulkResult,
+    Arc<FakeTransport>,
+    Arc<crate::journal::InMemoryJournal>,
+) {
+    let journal = Arc::new(crate::journal::InMemoryJournal::default());
+    journal
+        .append(&JournalRecord {
+            stage: stage.into(),
+            mode: "native_bulk".into(),
+            actor_id: "actor".into(),
+            source_url: None,
+            run_id: run_id.map(str::to_owned),
+            dataset_id: None,
+            run_status: None,
+            build_number: Some("0.0.50".into()),
+            build_id: Some("aJLRmMdQapLQRT4sJ".into()),
+            build_verification: "pending".into(),
+            cap: Some("0.10".into()),
+            input_digest: None,
+            context: Some(context),
+            error: None,
+        })
+        .unwrap();
+    let transport = Arc::new(FakeTransport::new(responses));
+    let config = Config::builder()
+        .token("synthetic-test-token")
+        .max_total_charge_usd("0.10")
+        .dataset_page_limit(dataset_page_limit)
+        .transport(transport.clone())
+        .clock(Arc::new(FakeClock))
+        .journal(journal.clone())
+        .build()
+        .unwrap();
+    let result = resume_bulk(
+        &config,
+        "resume-bulk-run",
+        &urls(&["https://instagram.com/reel/ABC"]),
+    );
+    (result, transport, journal)
+}
+
+fn resume_bulk_context(url: &str) -> Value {
+    json!({"mode":"native_bulk","input":{"bulkUrls":[url],"resultsLimit":12}})
+}
+
+#[test]
+fn resume_bulk_input_mismatch_fails_before_any_request() {
+    let (result, transport, _) = resume_bulk_fixture(
+        "run_created",
+        Some("resume-bulk-run"),
+        resume_bulk_context("https://instagram.com/reel/OTHER"),
+        vec![],
+        100,
+    );
+    assert_eq!(result.error_code.as_deref(), Some("journal_error"));
+    assert!(transport.requests().is_empty());
+}
+
+#[test]
+fn resume_bulk_intent_without_run_id_is_not_reposted() {
+    let (result, transport, _) = resume_bulk_fixture(
+        "intent",
+        None,
+        resume_bulk_context("https://instagram.com/reel/ABC"),
+        vec![],
+        100,
+    );
+    assert_eq!(result.error_code.as_deref(), Some("journal_error"));
+    assert!(transport.requests().is_empty());
+}
+
+#[test]
+fn resume_bulk_run_failure_is_get_only_and_stops_before_dataset() {
+    let (result, transport, journal) = resume_bulk_fixture(
+        "run_created",
+        Some("resume-bulk-run"),
+        resume_bulk_context("https://instagram.com/reel/ABC"),
+        vec![Response::json(
+            200,
+            json!({"data":{"status":"FAILED","defaultDatasetId":"unused"}}),
+        )],
+        100,
+    );
+    assert_eq!(result.error_code.as_deref(), Some("run_failed"));
+    assert_eq!(transport.requests().len(), 1);
+    assert_eq!(transport.requests()[0].method, reqwest::Method::GET);
+    let terminal = journal.latest("resume-bulk-run").unwrap().unwrap();
+    assert_eq!(terminal.stage, "run_terminal");
+    assert_eq!(terminal.run_status.as_deref(), Some("FAILED"));
+}
+
+#[test]
+fn resume_bulk_build_mismatch_is_get_only_and_stops_before_dataset() {
+    let (result, transport, journal) = resume_bulk_fixture(
+        "run_created",
+        Some("resume-bulk-run"),
+        resume_bulk_context("https://instagram.com/reel/ABC"),
+        vec![Response::json(
+            200,
+            json!({"data":{"status":"SUCCEEDED","defaultDatasetId":"unused","buildNumber":"0.0.49","buildId":"wrong"}}),
+        )],
+        100,
+    );
+    assert_eq!(result.error_code.as_deref(), Some("build_mismatch"));
+    assert_eq!(transport.requests().len(), 1);
+    assert_eq!(transport.requests()[0].method, reqwest::Method::GET);
+    let terminal = journal.latest("resume-bulk-run").unwrap().unwrap();
+    assert_eq!(terminal.stage, "run_terminal");
+    assert_eq!(terminal.build_verification, "mismatch");
+}
+
+#[test]
+fn resume_bulk_incomplete_dataset_is_untrusted_and_get_only() {
+    let (result, transport, _) = resume_bulk_fixture(
+        "run_created",
+        Some("resume-bulk-run"),
+        resume_bulk_context("https://instagram.com/reel/ABC"),
+        vec![
+            Response::json(
+                200,
+                json!({"data":{"status":"SUCCEEDED","defaultDatasetId":"dataset","buildNumber":"0.0.50","buildId":"aJLRmMdQapLQRT4sJ"}}),
+            ),
+            Response::json(
+                200,
+                json!([usable("https://instagram.com/reel/ABC", "partial")]),
+            ),
+        ],
+        1,
+    );
+    assert_eq!(result.status, BatchStatus::PartialSuccess);
+    assert_eq!(result.results[0].status, TaskStatus::Success);
+    assert!(!result.dataset_complete);
+    assert!(transport
+        .requests()
+        .iter()
+        .all(|request| request.method == reqwest::Method::GET));
 }

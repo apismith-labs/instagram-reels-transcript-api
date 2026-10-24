@@ -4,6 +4,7 @@
 //! provide credentials and an explicit per-run charge cap through `Config`.
 
 pub mod attribution;
+pub mod bulk;
 mod client;
 pub mod config;
 pub mod dataset;

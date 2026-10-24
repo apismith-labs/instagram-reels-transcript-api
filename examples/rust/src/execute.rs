@@ -227,7 +227,7 @@ pub(crate) fn get_transcript(config: &Config, url: &str) -> Result<TranscriptRes
     Ok(result)
 }
 
-fn post_run(config: &Config, body: &Value) -> Result<Value> {
+pub(crate) fn post_run(config: &Config, body: &Value) -> Result<Value> {
     let actor = encode_actor_id(&config.actor_id);
     let url = format!(
         "{API}/acts/{actor}/runs?build={}&maxTotalChargeUsd={}&restartOnError=false",
@@ -288,7 +288,11 @@ fn post_run(config: &Config, body: &Value) -> Result<Value> {
     })
 }
 
-fn poll_run(config: &Config, run_id: &str, deadline: std::time::Instant) -> Result<Value> {
+pub(crate) fn poll_run(
+    config: &Config,
+    run_id: &str,
+    deadline: std::time::Instant,
+) -> Result<Value> {
     let mut delay = Duration::from_secs(1);
     loop {
         if config.clock.now() >= deadline {
@@ -366,7 +370,7 @@ fn poll_run(config: &Config, run_id: &str, deadline: std::time::Instant) -> Resu
 const MAX_DATASET_ATTEMPTS: usize = 4;
 const EMPTY_DATASET_CONFIRMATIONS: usize = 2;
 
-fn get_dataset_page(
+pub(crate) fn get_dataset_page(
     config: &Config,
     dataset_id: &str,
     deadline: std::time::Instant,
@@ -495,7 +499,7 @@ fn wait_before_dataset_retry(
     config.clock.sleep(delay);
     config.clock.now() < deadline
 }
-fn read_build_number(run: &Value) -> Option<String> {
+pub(crate) fn read_build_number(run: &Value) -> Option<String> {
     run.get("buildNumber").map(|v| {
         if let Some(s) = v.as_str() {
             s.to_owned()

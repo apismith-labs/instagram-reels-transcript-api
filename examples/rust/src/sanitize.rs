@@ -116,12 +116,13 @@ pub fn redact_text(input: &str) -> String {
                     j += 1;
                 }
                 if j < chars.len() && matches!(chars[j], '"' | '\'') {
-                    let key_quote = chars[j];
-                    if chars[j + 1..].contains(&key_quote) {
+                    // A quoted key's closing quote follows the key directly, even
+                    // when its value is an unquoted malformed fragment such as
+                    // `"token":SECRET`. Do not require a second quote later in
+                    // the text; that requirement lets precisely that form leak.
+                    j += 1;
+                    while j < chars.len() && chars[j].is_whitespace() {
                         j += 1;
-                        while j < chars.len() && chars[j].is_whitespace() {
-                            j += 1;
-                        }
                     }
                 }
                 if j < chars.len() && (chars[j] == '=' || chars[j] == ':') {
@@ -661,6 +662,26 @@ mod tests {
         ] {
             assert!(redact_text(s).contains("[REDACTED]"), "{s}");
         }
+    }
+
+    #[test]
+    fn quoted_keys_with_unquoted_values_are_redacted() {
+        let cases = [
+            (r#""token":OPAQUE_COLON_1"#, "OPAQUE_COLON_1"),
+            ("'token': OPAQUE_COLON_2", "OPAQUE_COLON_2"),
+            ("'token'=OPAQUE_EQUALS_3", "OPAQUE_EQUALS_3"),
+            (r#""token": OPAQUE_COLON_4"#, "OPAQUE_COLON_4"),
+            (r#"{"token":OPAQUE_JSON_5}"#, "OPAQUE_JSON_5"),
+        ];
+        for (input, secret) in cases {
+            let once = redact_text(input);
+            assert!(!once.contains(secret), "secret persisted: {once:?}");
+            assert_eq!(redact_text(&once), once, "must remain idempotent");
+        }
+        assert_eq!(
+            redact_text("tokenizer remains intact"),
+            "tokenizer remains intact"
+        );
     }
     #[test]
     fn normal_text_is_retained() {

@@ -1,6 +1,27 @@
 # G2 Native Bulk Identity, Attribution, and Result Contract
 
-This document freezes the design target for future Rust Native Bulk implementation. It does not claim that Native Bulk, Profile, CSV, or Resume is implemented. G1 Single behavior remains unchanged.
+This document freezes the Rust Native Bulk implementation contract introduced by G2-A. It does not claim that Profile, CSV, or Resume is implemented. G1 Single behavior remains unchanged.
+
+## G2-A implementation addendum
+
+The implementation keeps this contract, with the following explicit serialization and operation-error details. `plannedTaskCount` is always present in every batch summary and serializes as an integer or JSON `null` (never omitted). It is `null` if input preflight did not produce a complete plan (empty/invalid URL input); once the full URL set is validated and deduplicated, it is the exact unique-identity count, including later configuration, Journal, create, Run, Dataset, or output failures. The value is never estimated from raw input length.
+
+Batch operation errors are mapped as follows. These mappings are exclusive and take precedence over normal task aggregation:
+
+| errorCode | Batch `status` | Exit | Task rows / counts | Run and Dataset IDs | Trusted partial data | Create retry |
+|---|---|---:|---|---|---|---|
+| `input_error` | `input_error` | 2 | none; all counts zero | null | no | no POST was attempted |
+| `create_rejected` | `error` | 4 | none; all counts zero | preserve only if known | no | never |
+| `creation_unknown` | `creation_unknown` | 10 | none; all counts zero | preserve only if known | no | never |
+| `output_error` | `output_error` | 2 | none; all counts zero | preserve known IDs | no result file is claimed | never |
+| `journal_error` | `error` | 2 | none; all counts zero | preserve known IDs | no task outcomes | never |
+| `transport_error` | `error` | 8 | none; all counts zero | preserve known IDs | no task outcomes | never |
+| `run_failed` | `error` | 9 | one `error/run_failed` row per planned task; error count is task count | preserve known Run/Dataset IDs | no transcript data is trusted | never |
+| `build_mismatch` | `error` | 7 | one `error/build_mismatch` row per planned task; error count is task count | preserve known IDs and observed Build identity | no Dataset read or transcript data | never |
+| `dataset_error` | `error` | 7 | none; all counts zero | preserve known IDs | no task outcomes | never |
+| `attribution_error` | `error` | 7 | none; all counts zero | preserve known IDs | no task outcomes | never |
+
+Normal aggregation has `errorCode=null`; an all-error task aggregate exits 1. Thus operation-level `run_failed` / `build_mismatch` retain their G1 operational exit code while explicit task rows still explain the effect on every planned task. In every error case, a create POST is never repeated.
 
 ## Scope and identity
 
@@ -21,18 +42,24 @@ Evaluate each physical Dataset item once. Evidence precedence and conflict handl
 1. Validate an item's URL using the same URL contract. A malformed non-empty URL is `invalid_item` and blocks fallback.
 2. Normalize a valid URL and compare it exactly against all source URLs of all tasks. One match is an `exact_url` candidate.
 3. Compare the validated URL's own typed identity with every other reliable identity field present on the item, including shortcode and media type, whether or not the URL matched an input task. If URL, shortcode, or type disagree, classify the item as `conflicting_evidence`; URL success does not override the contradiction, and an unmatched URL cannot be used to fall back to a contradictory shortcode.
-4. The affected task set for a contradiction is the union of: the URL-matched task, if any; and every task selected by the item's reliable `(mediaType, shortcode)` pair, if present. When a shortcode is present without a reliable media type, all tasks with that shortcode are affected. Never infer a type from the candidate task. Each affected task becomes `unknown`; the one physical item is stored once in `extraItems[]`, with its `affectedTaskIndexes[]`.
+4. The affected task set for a contradiction is the union of: the task selected by the URL-derived typed identity, if any (including a Reel alias match); the task selected by the item's reliable `(mediaType, shortcode)` pair, if present; and any exact normalized-URL match. When a shortcode is present without a reliable media type, all tasks with that shortcode are affected. Never infer a type from the candidate task. Each affected task becomes `unknown`; the one physical item is stored once in `extraItems[]`, with its `affectedTaskIndexes[]`.
 5. If there is no valid URL evidence, typed fallback is permitted only when the item itself carries a reliable supported media type and shortcode and that pair selects exactly one task. The expected type cannot be inferred from the tasks or from the fact that only one shortcode candidate exists. If reliable typed identity exists but selects zero tasks, classify the item as `unmatched`, set attribution to `none`, set `affectedTaskIndexes=[]`, leave every task unchanged, and preserve a sanitized diagnostic. Do not discard the media type and retry shortcode-only matching.
 6. A valid URL or reliable typed identity that matches no task is `unmatched` and blocks fallback to weaker or contradictory evidence, even if a shortcode alone matches an input. A shortcode-only item without reliable media type is `ambiguous` and cannot succeed even if there is only one input task. Its affected set is all input tasks sharing that shortcode (possibly empty).
 7. Invalid or structurally unusable items are `invalid_item` when serializable. They are retained once as extras and never silently discarded.
 
 No item is assigned by Dataset order or array position. One item cannot satisfy multiple tasks. A task may be `success` only when exactly one physical item uniquely attributes to it and its item contract confirms usable transcript data. A single item cannot yield a success if any of its identity evidence conflicts.
 
+### Reel path aliases during URL attribution
+
+After validating a Dataset item's URL, derive its typed identity `(MediaType, shortcode)`. If the URL does not exactly match a task's normalized source URL but its typed identity matches exactly one task, assign it to that task as `typed_fallback`. In particular, `/reel/X` and `/reels/X` are the same Reel identity in either direction. An exact normalized source URL match remains `exact_url`; matching one of several source URLs is enough. This rule requires a validated URL and is not a shortcode-only fallback. `/p/X` remains a different typed identity, and shortcodes remain case-sensitive. Self-reported `shortCode` and `mediaType` must agree with the validated URL identity before either attribution path can be used; contradictions remain fail-closed.
+
 ### Repeated items for one task
 
 If two or more physical items independently point to the same task, do not select a primary winner. Mark that task `unknown`, put **all** those physical items in `extraItems[]` with reason `duplicate` and the task index in `affectedTaskIndexes[]`, and leave that task's `results[].rawItems[]` empty. If a task becomes `unknown` because of another ambiguous, conflicting, or incomplete item, move every previously attributable item for that task out of its pending `rawItems[]` and into `extraItems[]` with reason `task_unresolved`; keep the causative item under its own reason (such as `ambiguous` or `conflicting_evidence`). This preserves every diagnostic item without copying one item into both arrays or claiming an arbitrary item as success. Other uniquely attributed tasks may retain their own item in `results[].rawItems[]`.
 
 `counts.extraItems` is exactly `extraItems.length`, counting physical Dataset item occurrences, not affected-task references. Each physical Dataset item occurs exactly once across all `results[].rawItems[]` and `extraItems[].rawItem`; an item is never counted in both. Invalid values that cannot be represented as JSON cannot occur in a parsed JSON Dataset; for every parsed item, preserve the sanitized JSON value.
+
+When a task has duplicate assigned items, its `unknown` row preserves the strongest observed non-conflicting evidence: all-exact duplicates serialize `exact_url`; all-typed-fallback duplicates serialize `typed_fallback`; mixed evidence serializes `exact_url` because at least one item exactly matched a normalized source URL. In all cases the task remains `unknown`, all duplicate physical items become separate `duplicate` extras, and none is selected as a successful result. An independently observed `conflicting_evidence` remains higher priority than duplicate attribution.
 
 ## Formal vocabularies
 
@@ -189,6 +216,20 @@ Notation: counts are `(success, empty, unknown, error, extraItems)`, and task in
 
 The duplicate fixture deliberately stores both physical duplicates only as extras, so no primary diagnostic item is silently selected. Fixture 4 treats a valid URL plus contradictory shortcode as conflicting evidence; both affected tasks become unknown. Fixture 11 proves reliable typed identity with zero candidates is unmatched, has no affected task, and cannot fall back to a same-shortcode task of another type. Fixture 12 proves that when a second ambiguous item downgrades a task, the previously exact item is moved to `task_unresolved`; neither physical item is lost or duplicated.
 
+## Fixture 13 — Reel Alias Identity Attribution
+
+Notation and completeness assumptions are the same as Fixtures 1–12. Each scenario below is a separate run. Counts are `(success, empty, unknown, error, extraItems)`.
+
+| Scenario | Input and Dataset evidence | Unique task result(s) | Extras | Counts | Batch / exit |
+|---|---|---|---|---|---|
+| 13a: Reel → Reels | Input `/reel/ABC`; one usable item URL `/reels/ABC`, shortcode `ABC`, media type `reel`. | `(reel, ABC)`: `success`, `typed_fallback`, one raw item. | none | `(1,0,0,0,0)` | `success` / 0 |
+| 13b: Reels → Reel | Input `/reels/ABC`; one usable item URL `/reel/ABC`, shortcode `ABC`, media type `reel`. | `(reel, ABC)`: `success`, `typed_fallback`, one raw item. | none | `(1,0,0,0,0)` | `success` / 0 |
+| 13c: both aliases supplied | Inputs `/reel/ABC`, `/reels/ABC`; one usable item URL `/reels/ABC`, matching shortcode/type. | One `(reel, ABC)` task with `sourceIndexes=[0,1]`: `success`, `exact_url`, one raw item. | none | `(1,0,0,0,0)` | `success` / 0 |
+| 13d: Post/Reel evidence conflict | Inputs `/p/ABC`, `/reel/ABC`; item URL `/p/ABC`, shortcode `ABC`, self-reported `mediaType=reel`. | Both tasks: `unknown`, `conflicting_evidence`, no raw items. | One `conflicting_evidence` extra, affected tasks `[0,1]`. | `(0,0,2,0,1)` | `unknown` / 2 |
+| 13e: shortcode case differs | Input `/reel/AbC`; usable item URL `/reels/abc`, shortcode `abc`, media type `reel`. | `(reel, AbC)`: `empty`, `none`, no raw items. | One `unmatched` extra, affected tasks `[]`. | `(0,1,0,0,1)` | `partial_success` / 2 |
+
+For duplicate evidence, the following focused subfixtures freeze attribution selection: two typed-fallback items yield one `unknown/typed_fallback` row and two `duplicate` extras, counts `(0,0,1,0,2)`, batch `unknown`, exit 2. One exact item plus one typed-fallback alias item yields one `unknown/exact_url` row (exact has precedence), the same two extras/counts/status/exit. Neither duplicate scenario places a physical item in `rawItems[]`.
+
 Additional aggregate cases, with exact counts, are:
 
 | Case | Task rows | Attribution | Extras | Counts `(success,empty,unknown,error,extraItems)` | Batch / exit |
@@ -213,7 +254,7 @@ Do not merge Post and Reel identities based on shortcode equality. A future cros
 
 ## Required offline G2 test plan
 
-- `/reel/X` and `/reels/X` deduplicate to one Reel task; every source URL participates in exact attribution.
+- `/reel/X` and `/reels/X` deduplicate to one Reel task; an exactly matching normalized source URL yields `exact_url`, while a validated alias path yields `typed_fallback` in either direction.
 - `/p/X` and `/reel/X` remain separate; shortcode-only evidence without item media type is ambiguous even with one candidate task.
 - `X` and `x` remain distinct; host case and optional trailing slash do not alter typed identity.
 - Invalid host/path/query/fragment/userinfo/port inputs fail before any create POST.

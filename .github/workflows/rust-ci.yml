@@ -68,8 +68,8 @@ jobs:
           if not match:
               raise SystemExit("Mutation summary missing; refusing to pass.")
           detected, total = map(int, match.groups())
-          if total < 11 or detected != total:
-            raise SystemExit(f"Mutation gate failed: {detected}/{total}; requires all and at least 11.")
+          if total < 19 or detected != total:
+            raise SystemExit(f"Mutation gate failed: {detected}/{total}; requires all and at least 19.")
           print(f"Mutation count gate: {detected}/{total} detected.")
           PY
 

@@ -3,6 +3,7 @@ use crate::{
     sanitize::sanitize_value,
     status::TranscriptResult,
 };
+use serde_json::Value;
 use std::{
     fs::{self, OpenOptions},
     io::Write,
@@ -14,6 +15,23 @@ use std::{
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub fn write_result(output_dir: &Path, result: &TranscriptResult) -> Result<PathBuf> {
+    let value = serde_json::to_value(result)
+        .map_err(|_| Error::new(ErrorKind::Output, "output", "could not serialize result"))?;
+    write_json(output_dir, "transcript", &value)
+}
+
+pub fn write_json(output_dir: &Path, prefix: &str, value: &Value) -> Result<PathBuf> {
+    if prefix.is_empty()
+        || !prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(Error::new(
+            ErrorKind::Output,
+            "output",
+            "result filename prefix must contain only ASCII letters, digits, hyphens, or underscores",
+        ));
+    }
     fs::create_dir_all(output_dir).map_err(|_| {
         Error::new(
             ErrorKind::Output,
@@ -21,11 +39,7 @@ pub fn write_result(output_dir: &Path, result: &TranscriptResult) -> Result<Path
             "could not create output directory",
         )
     })?;
-    let json = serde_json::to_vec_pretty(&sanitize_value(
-        &serde_json::to_value(result)
-            .map_err(|_| Error::new(ErrorKind::Output, "output", "could not serialize result"))?,
-    ))
-    .map_err(|_| {
+    let json = serde_json::to_vec_pretty(&sanitize_value(value)).map_err(|_| {
         Error::new(
             ErrorKind::Output,
             "output",
@@ -38,7 +52,7 @@ pub fn write_result(output_dir: &Path, result: &TranscriptResult) -> Result<Path
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let base = format!("transcript-{stamp}-{}-{n}.json", std::process::id());
+        let base = format!("{prefix}-{stamp}-{}-{n}.json", std::process::id());
         let final_path = output_dir.join(base);
         let temp_path = output_dir.join(format!(
             ".{}.tmp",
@@ -184,6 +198,53 @@ mod tests {
     }
 
     #[test]
+    fn generic_bulk_json_writer_sanitizes_untrusted_actor_text_and_keys() {
+        let d = tempfile::tempdir().unwrap();
+        let value = json!({
+            "results": [{
+                "text": "caption remains; token: OPAQUE_BULK_TOKEN",
+                "rawItems": [{"apiKey": "OPAQUE_KEY", "errMsg": "password='OPAQUE_PASSWORD'"}],
+                "count": 3,
+                "active": true
+            }],
+            "extraItems": [{"rawItem": {"caption": "ordinary text", "access_token": "OPAQUE_ACCESS"}}]
+        });
+        let path = write_json(d.path(), "native-bulk", &value).unwrap();
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("native-bulk-"));
+        let saved = fs::read_to_string(path).unwrap();
+        for secret in [
+            "OPAQUE_BULK_TOKEN",
+            "OPAQUE_KEY",
+            "OPAQUE_PASSWORD",
+            "OPAQUE_ACCESS",
+        ] {
+            assert!(!saved.contains(secret), "secret persisted: {secret}");
+        }
+        let parsed: Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(parsed["results"][0]["count"], 3);
+        assert_eq!(parsed["results"][0]["active"], true);
+        assert!(parsed["results"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("caption remains"));
+        assert!(parsed["extraItems"][0]["rawItem"]
+            .get("access_token")
+            .is_none());
+    }
+
+    #[test]
+    fn generic_writer_rejects_path_components_in_filename_prefix() {
+        let d = tempfile::tempdir().unwrap();
+        let error = write_json(d.path(), "../outside", &json!({"ok":true})).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Output);
+        assert_eq!(fs::read_dir(d.path()).unwrap().count(), 0);
+    }
+
+    #[test]
     fn persisted_text_secrets_are_absent_and_business_text_is_preserved() {
         let d = tempfile::tempdir().unwrap();
         let long_tail = "ordinary-transcript-content ".repeat(80);
@@ -232,6 +293,48 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn quoted_unquoted_credential_values_never_reach_persisted_output() {
+        let d = tempfile::tempdir().unwrap();
+        let secrets = [
+            "OPAQUE_TOKEN_1",
+            "OPAQUE_TOKEN_2",
+            "OPAQUE_TOKEN_3",
+            "OPAQUE_TOKEN_4",
+            "OPAQUE_TOKEN_5",
+        ];
+        let result = TranscriptResult {
+            status: Status::Success,
+            run_id: Some("run-synthetic".into()),
+            dataset_id: Some("dataset-synthetic".into()),
+            source_url: "https://www.instagram.com/reel/AbC123/".into(),
+            text: Some(format!(
+                r#""token":{} 'token': {} 'token'= {} "token": {} {{"token":{}}} ordinary transcript survives"#,
+                secrets[0], secrets[1], secrets[2], secrets[3], secrets[4]
+            )),
+            segments: vec![],
+            raw_items: vec![],
+            error: None,
+            stage: Some("test".into()),
+            build_number: Some("0.0.50".into()),
+            build_id: Some("synthetic-build".into()),
+            build_verification: BuildVerification::Verified,
+            attribution_verification: AttributionVerification::Verified,
+            dataset_complete: true,
+        };
+
+        let path = write_result(d.path(), &result).unwrap();
+        let saved = fs::read_to_string(path).unwrap();
+        for secret in secrets {
+            assert!(!saved.contains(secret), "secret persisted: {secret}");
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&saved).expect("valid JSON");
+        assert!(parsed["text"]
+            .as_str()
+            .unwrap()
+            .contains("ordinary transcript survives"));
     }
 
     #[test]

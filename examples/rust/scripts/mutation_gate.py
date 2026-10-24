@@ -107,6 +107,83 @@ MUTATIONS = [
         ],
         "redaction must be idempotent",
     ),
+    (
+        "native bulk sends duplicate typed identities",
+        "src/bulk.rs",
+        "let actor_urls = tasks\n        .iter()\n        .map(|task| task.source_urls[0].clone())\n        .collect();",
+        "let actor_urls = urls.to_vec();",
+        ["--lib", "bulk::tests::native_bulk_executes_one_post_with_unique_typed_inputs_and_journals_first"],
+        "Actor receives unique identities once",
+    ),
+    (
+        "typed attribution ignores media type",
+        "src/bulk.rs",
+        ".filter(|(_, t)| t.identity.media_type == media && t.identity.shortcode == code)",
+        ".filter(|(_, t)| true && t.identity.shortcode == code)",
+        ["--lib", "bulk::tests::typed_fallback_does_not_cross_media_types_with_same_shortcode"],
+        "typed fallback crossed media types",
+    ),
+    (
+        "unknown batch is incorrectly promoted to success",
+        "src/bulk.rs",
+        "return BatchStatus::Unknown;",
+        "return BatchStatus::Success;",
+        ["--lib", "bulk::tests::frozen_dataset_fixtures_01_through_06_are_deterministic"],
+        "all shortcode-only ambiguity remains unknown",
+    ),
+    (
+        "creation unknown retries bulk POST",
+        "src/bulk.rs",
+        "Err(e) => {\n            let code = if e.kind == ErrorKind::CreateRejected {",
+        "Err(e) => {\n            let _retry_probe = post_run(config, &input);\n            let code = if e.kind == ErrorKind::CreateRejected {",
+        ["--lib", "bulk::tests::uncertain_bulk_create_is_not_retried_and_has_no_task_rows"],
+        "creation_unknown must not retry create POST",
+    ),
+    (
+        "bulk public result skips RawItem text sanitization",
+        "src/bulk.rs",
+        "pending[task].push((0, sanitize_value(item), attr))",
+        "pending[task].push((0, item.clone(), attr))",
+        ["--lib", "bulk::tests::normal_bulk_serialization_uses_frozen_camel_case_schema_and_counts"],
+        "secret persisted",
+    ),
+    (
+        "Reel/Reels typed URL alias attribution disabled",
+        "src/bulk.rs",
+        """        if let [index] = typed_matches.as_slice() {
+            return Evidence::Assigned(*index, Attribution::TypedFallback);
+        }
+""",
+        """        if false {
+            return Evidence::Assigned(typed_matches[0], Attribution::TypedFallback);
+        }
+""",
+        ["--lib", "bulk::tests::reel_alias_urls_match_by_typed_identity_in_both_directions"],
+        "left: Empty",
+    ),
+    (
+        "duplicate mixed evidence priority changed",
+        "src/bulk.rs",
+        """    if candidates
+        .iter()
+        .any(|(_, _, attribution)| *attribution == Attribution::ExactUrl)
+""",
+        """    if false
+""",
+        ["--lib", "bulk::tests::mixed_duplicate_evidence_prefers_exact_url_attribution"],
+        "left: TypedFallback",
+    ),
+    (
+        "Native Bulk URL typed identity ignores media type",
+        "src/bulk.rs",
+        "task.identity.media_type == media && task.identity.shortcode == code",
+        "task.identity.shortcode == code",
+        [
+            "--lib",
+            "bulk::tests::execute_bulk_url_identity_never_crosses_post_and_reel_media_types",
+        ],
+        "left: Success",
+    ),
 ]
 
 

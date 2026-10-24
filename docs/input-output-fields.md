@@ -33,11 +33,12 @@ Mode boundaries:
   field", "exactly one entry field", or "do not mix" — the schema has no `oneOf`/`anyOf`, so a
   request carrying several entry fields is not rejected on schema grounds. What the Actor does
   with such a request is **unverified**.
-- **This repository does not implement the three-way choice.** Every example here sends only
-  `videoUrl`. None of them validates, rejects, or selects between the three modes; there is no
-  client-side mode switch to inherit. "Pick one mode" is guidance for hand-written requests, not
-  a behaviour you get from the current code. Native bulk (`bulkUrls`) and Profile (`usernames`)
-  examples are not developed yet — they are V2.1 `B01` and `P01`.
+- This field reference documents the Actor's input schema; it is not a complete cross-language
+  description of client validation. The repository now includes mode-specific Single, Native Bulk,
+  and Profile implementations in several languages. Each client has its own validation and
+  execution contract; see the [compatibility matrix](compatibility.md) and relevant language guide
+  before relying on a particular behavior. Do not assume that the Actor schema enforces the same
+  mode-selection rules as an SDK.
 - Profile mode collects post metadata. Producing transcripts for those posts requires a separate
   Run using `videoUrl` or `bulkUrls` — the Actor does not chain the two for you.
 
@@ -46,8 +47,8 @@ Mode boundaries:
 | Mode | Example code available here |
 | --- | --- |
 | Single transcript | Yes — cURL, Python, Node.js, Java, Go, Rust |
-| Native bulk transcript | Yes — Python, Node.js, Go, Java |
-| Profile posts | Yes — Python, Node.js, Go, Java |
+| Native bulk transcript | Yes — Python, Node.js, Go, Java, Rust |
+| Profile posts | Yes — Python, Node.js, Go, Java, Rust |
 
 The table above summarizes the currently implemented examples. Java completed controlled Live checks for Single URL, three-URL Native Bulk, one-row CSV, and GET-only Single Resume; its three-account Profile check was PARTIAL (19 success, one owner attribution unknown, one Actor error). Java CSV `--execute` requires a positive per-Run charge cap supplied through `--max-total-charge-usd` or `APIFY_MAX_TOTAL_CHARGE_USD`. See
 [batch-processing-guide.md](batch-processing-guide.md) for how the existing CSV examples differ
@@ -107,6 +108,7 @@ from native bulk.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `sessionid` | string per the Actor README | **Absent from the pinned input schema.** Its runtime effect is unknown: do not describe it as deprecated, and do not assume it is ignored. The examples here send an empty string. Never commit or log a real value. |
+| `enhancedcrawl` | boolean in current public Actor documentation | Current Actor documentation describes a default of `true` and says additional charges apply only when enhanced retrieval succeeds, starting 2026-11-04. Set `"enhancedcrawl": false` to opt out where supported. This has not been verified against pinned Build `0.0.50`; do not assume this field is accepted or behaves this way on every Build. The price/event rate is unknown. See the [Actor documentation](https://apify.com/apple_yang/instagram-transcripts-scraper.md) and [current pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing). |
 
 Additional notes:
 

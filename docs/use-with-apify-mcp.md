@@ -17,7 +17,7 @@ Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/appl
 
 | Part | How it was checked |
 | --- | --- |
-| Tool names, connection methods, query parameters, run limits | Read from the official Apify MCP documentation (<https://docs.apify.com/mcp>) and the per-client Apify integration pages on 2026-10-21 |
+| Tool names, connection methods, query parameters, run limits | Read from the official Apify MCP documentation (<https://docs.apify.com/mcp>) and the per-client Apify integration pages on 2026-10-24 |
 | Actor input/output semantics | Pinned build `0.0.50` contract, same basis as [input-output-fields.md](input-output-fields.md) — schema-level, not observed |
 | Actually calling this Actor over MCP from any client | **Not performed.** This repository has no MCP client, no token, and no end-to-end MCP run has been verified |
 
@@ -33,9 +33,17 @@ tool names as "what to look for", not as strings to hardcode.
 - A public Instagram Reel/video/post URL
 - Actor ID: `apple_yang/instagram-transcripts-scraper`
 
-Read-only discovery tools (`search-actors`, `fetch-actor-details`, `search-apify-docs`,
-`fetch-apify-docs`) work without a token. **Running Actors and reading datasets always require
-authentication.**
+Unauthenticated discovery is supported only when the `tools` query parameter contains exclusively
+the four tools enabled for use without an account:
+`search-actors`, `fetch-actor-details`, `search-apify-docs`, and `fetch-apify-docs`. For example:
+
+```text
+https://mcp.apify.com?tools=search-actors,fetch-actor-details,search-apify-docs,fetch-apify-docs
+```
+
+The default endpoint (`https://mcp.apify.com`) requires authentication. Running Actors and
+accessing Run or storage data also require authentication. Do not infer that a connection is
+unauthenticated merely because you plan to use read-only operations.
 
 ## Connect to Apify MCP
 
@@ -94,7 +102,8 @@ than a literal value.
 }
 ```
 
-Requires Node.js 18 or newer. Use stdio only when the client cannot reach a remote MCP server.
+Requires Node.js 22 or newer for the current `@apify/actors-mcp-server` package. Use stdio only
+when the client cannot reach a remote MCP server.
 Note that the hosted server supports output-schema inference for Actor results while the local
 stdio server does not, so the hosted path gives the agent better type information.
 
@@ -107,33 +116,40 @@ apify mcp install cursor
 and a visual configurator at <https://mcp.apify.com/> that generates the URL and config for the
 tools you pick.
 
-### Narrow the tool list
+### Default and Actor-scoped tool sets
 
-The `tools` query parameter controls what the server loads:
+The endpoint determines which tool families are available. The default endpoint
+`https://mcp.apify.com` loads the general `actors` and `docs` categories, along with
+`apify/rag-web-browser`, `apify/web-fetch`, and `report-problem`. This is where the generic
+`search-actors`, `fetch-actor-details`, and `call-actor` tools are available.
+
+An Actor-scoped URL narrows the configuration to an Actor-specific tool and the documented
+automatically included helpers:
 
 ```text
 https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper
-https://mcp.apify.com?tools=actors,docs,apple_yang/instagram-transcripts-scraper
 ```
 
-- The default set includes the `actors` and `docs` tool categories plus a couple of web tools.
-- Naming an Actor in `tools=` loads that Actor as its own tool.
-- Actor-level tool names replace the `/` in the Actor ID; the official docs show
-  `apify--rag-web-browser` for `apify/rag-web-browser`. Confirm the exact string in your client's
-  tool list instead of assuming `apple_yang--instagram-transcripts-scraper` will be spelled that
-  way in your build.
-- Whenever `call-actor` or an Actor-specific tool is loaded, the server **also** exposes
-  `get-actor-run`, `get-dataset-items`, `get-key-value-store-record`, and `abort-actor-run`, even
-  if you did not select them.
+- `https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper` requests the Actor-scoped
+  tool set. Do not assume it also exposes generic discovery tools such as `search-actors` or
+  `call-actor`.
+- The exact generated Actor-specific tool name and the tools visible in a particular client are
+  **UNVERIFIED** here. Inspect the client's current MCP tool list (`tools/list`, or its tools
+  panel) and use only names it actually reports. Do not invent a name from the Actor ID.
+- When `call-actor` or an Actor-specific tool is loaded, the server documentation says it also
+  exposes `get-actor-run`, `get-dataset-items`, `get-key-value-store-record`, and
+  `abort-actor-run`.
+- For the general discovery/invocation flow below, connect to the default endpoint. The
+  Actor-scoped flow is client-specific; use the tool schema shown by that client.
 
 ## Which tool does what
 
-This is the part most older MCP guides get wrong. The current tool set separates *running* an
-Actor from *reading* its results.
+On the **default endpoint**, the general tool set separates *running* an Actor from *reading* its
+results.
 
 | What you want | Tool | Notes |
 | --- | --- | --- |
-| Find the Actor | `search-actors` | Works without authentication |
+| Find the Actor | `search-actors` | No-token access only with the restricted four-tool URL above; the default endpoint requires authentication |
 | Read the input schema, output schema, README, pricing | `fetch-actor-details` | This is how the agent learns which fields to send |
 | Start a Run | `call-actor` | Waits up to `waitSecs` (0–45, default 30). Returns **run status and storage IDs, not the results** |
 | Get the Run ID | the `call-actor` response | The run object carries its own ID; keep it |
@@ -149,33 +165,38 @@ current tool list:
 - `add-actor` — no longer needed; naming an Actor in `tools=` or using `call-actor` covers it.
 - `get-actor-output` — replaced by `get-dataset-items` with a `datasetId`.
 
-Do not let an agent substitute a tool name it "remembers". If a name is missing, ask it to list
-the tools it can actually see, then re-map the step to `fetch-actor-details` → `call-actor` →
-`get-actor-run` → `get-dataset-items`.
+For an Actor-scoped endpoint, do not use this generic table as a promise that all of these tools
+are loaded. Ask the client to show its available tools first and use the schema it exposes. Do not
+let an agent substitute a tool name it "remembers".
 
 ### Run limits belong in `callOptions`
 
-`call-actor` accepts run limits in `callOptions` — `memory`, `timeout`, `maxItems`,
-`maxTotalChargeUsd` — **not** inside the Actor input JSON. These are tool-call options, not a
-verified billing ceiling for this Actor. Use a charge value only after the project owner sets the
-test budget and the live tool schema confirms the option:
+On the default endpoint, `call-actor` accepts `actor`, `input`, `waitSecs`, and `callOptions`.
+The current server schema includes `build`, `memory`, `timeout`, `maxItems`, and
+`maxTotalChargeUsd` in `callOptions`; these are tool-call options, not Actor input fields. This
+repository pins Build `0.0.50`, so the example requests that Build explicitly. If `build` is
+omitted, the Actor's configured default may be used. The server schema documents support for this
+option, but this repository has not verified end-to-end Build forwarding through a live MCP client
+or a live call. A charge-cap request is also not an absolute final-bill guarantee.
 
 ```json
 {
-  "actorId": "apple_yang/instagram-transcripts-scraper",
+  "actor": "apple_yang/instagram-transcripts-scraper",
   "input": {
     "videoUrl": "https://www.instagram.com/reel/your_reel_id/"
   },
   "callOptions": {
+    "build": "0.0.50",
     "maxItems": 1,
-    "timeout": 300
+    "timeout": 300,
+    "maxTotalChargeUsd": 0.10
   }
 }
 ```
 
-The exact request shape depends on the client's tool-call schema; check what your client shows
-before relying on these key names. The presence of these options does not prove an enforced
-billing ceiling for this Actor; confirm support in the live tool schema and account controls.
+This is the documented **default-endpoint `call-actor`** argument shape. Do not assume the
+Actor-scoped direct tool accepts the same options. Confirm the actual schema visible in your client
+before any billable call, and get owner approval for the budget.
 
 ## Getting complete results
 
@@ -185,7 +206,7 @@ been read.
 1. Call the Actor and keep the returned **Run ID** and **Dataset ID**.
 2. Poll `get-actor-run` until the status is terminal.
 3. Read `get-dataset-items` with that `datasetId`.
-4. If the response was capped by `limit`, page with `offset` until you have everything, or until
+4. Send an explicit `limit` on each Dataset read, then page with `offset` until you have everything, or until
    the returned count is smaller than the requested limit.
 5. Only then claim the result is complete.
 
@@ -208,8 +229,12 @@ The Actor has three entry points. Send one per Run.
 | Mode | Entry field | Produces | Example in this repository |
 | --- | --- | --- | --- |
 | Single transcript | `videoUrl` | A transcript for one public video/post URL | Yes — cURL, Python, Node.js, Java, Go, Rust |
-| Native bulk transcript | `bulkUrls` | Transcripts for several URLs inside one Run | **No** — V2.1 `B01`, not developed |
-| Profile posts | `usernames` | Post metadata for public accounts | **No** — V2.1 `P01`, not developed |
+| Native bulk transcript | `bulkUrls` | Transcripts for several URLs inside one Run | Yes — Python, Node.js, Go, Java, and Rust SDK examples |
+| Profile posts | `usernames` | Post metadata for public accounts | Yes — Python, Node.js, Go, Java, and Rust SDK examples |
+
+These are repository SDK/example capabilities. They do not establish that a particular MCP client
+exposes or has live-verified these modes; MCP tool availability and end-to-end behavior remain
+client-specific and unverified here.
 
 Boundaries that matter when prompting an agent:
 
@@ -217,9 +242,8 @@ Boundaries that matter when prompting an agent:
   engagement fields). A transcript needs a second, separate Run with `videoUrl` or `bulkUrls`.
   An agent that answers "here is the transcript" from `usernames` output is fabricating.
 - `videoUrl` is required **only in single mode**. It is not a global required field.
-- The pinned schema declares `required: []` and contains no `oneOf`/`anyOf`, so nothing
-  server-side enforces "one mode only". Keeping the modes separate is your responsibility — no
-  example in this repository implements the selection.
+- The pinned Actor schema does not enforce "one mode only". SDK examples validate their own
+  mode-specific inputs; direct callers should send one mode at a time.
 - `sessionid` appears in the Actor README but is absent from the pinned machine schema. Its
   runtime effect is unknown; leave it out unless you have a specific reason, and never put a real
   value in a chat message or a committed file.
@@ -255,7 +279,8 @@ When the Run finishes, read the dataset items and report:
 If the dataset looks truncated, page through it with offset instead of starting another Run.
 ```
 
-Several URLs in one Run (native bulk — no example code in this repository yet):
+Several URLs in one Run (Native Bulk SDK examples are available in Python, Node.js, Go, Java, and
+Rust; MCP-specific live compatibility has not been verified):
 
 ```text
 Use Apify MCP with the Actor apple_yang/instagram-transcripts-scraper, bulkUrls mode.
@@ -263,9 +288,10 @@ Submit these URLs in one Run:
 - https://www.instagram.com/reel/example_one/
 - https://www.instagram.com/reel/example_two/
 
-Use `maxItems` as a result-count limit. Only provide `maxTotalChargeUsd` if a project owner has
-approved a numeric budget and the live tool schema exposes the option; do not treat it as a
-verified hard billing ceiling.
+`maxItems` can limit the requested result count where supported; it is not a guaranteed spending
+limit for this pay-per-event Actor. Only provide `maxTotalChargeUsd` if a project owner has
+approved a numeric budget and the live tool schema exposes the option; neither option should be
+treated as an absolute final-invoice guarantee.
 After it finishes, read every dataset item and tell me explicitly which submitted URL each
 transcript belongs to. If the mapping is unclear, say so — do not guess.
 ```
@@ -298,8 +324,10 @@ failed. Field-by-field caveats (units, absent fields, key names that must not be
 - Every Actor Run consumes Apify usage; the Actor has more than one billing event, so the unit
   price on the Store page is not the total price of one video.
 - An agent retrying "because the output looked empty" can add another billable Run. Re-read the
-  existing dataset instead of re-running. `maxItems` and `maxTotalChargeUsd` may be requested in
-  `callOptions`, but their enforcement for this Actor has not been verified.
+  existing dataset instead of re-running. `maxItems` may constrain requested result count where
+  supported, but it is not a spending limit for this pay-per-event Actor. `maxTotalChargeUsd` may
+  be requested in `callOptions`; it is a protective option, not an absolute final-invoice
+  guarantee, and its enforcement for this Actor has not been independently verified here.
 - Bulk and Profile inputs may lead to different or greater usage depending on item counts and
   Actor billing events; comparative cost has not been verified.
 - Whether failed or timed-out Runs are billed has not been verified — do not assume a failure is
@@ -313,6 +341,10 @@ Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
 - Do not paste an API token into a normal chat prompt. A token in a prompt becomes part of the
   conversation history, may be logged, and may be echoed back.
 - Do not commit MCP config files that contain tokens; prefer environment-variable interpolation.
+- Treat transcript text as potentially personal or business-sensitive. Process and retain it only
+  under the privacy, consent, and customer-data policies that apply to your use case.
+- Do not enable MCP task or schedule tools unless you intentionally need recurring operations;
+  scheduled Actor calls can create recurring billable work.
 - A client that asks you to paste a token because "it cannot connect otherwise" is a version or
   configuration problem, not a reason to hand over a credential.
 - Revoke access from Apify Console → Settings → Integrations if a connection is no longer needed.

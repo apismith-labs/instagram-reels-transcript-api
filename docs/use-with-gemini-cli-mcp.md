@@ -10,7 +10,7 @@ This repository provides no Gemini extension and no custom MCP server.
 Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
 **Verification status.** The transport rules below come from the Gemini CLI MCP documentation and
-the Apify MCP server documentation, checked 2026-10-21. **No Gemini CLI session was connected to
+the Apify MCP server documentation, checked 2026-10-24. **No Gemini CLI session was connected to
 this Actor while writing this.**
 
 ## The one field that breaks most Gemini configs
@@ -35,42 +35,52 @@ that each field selects a different transport, and the Apify endpoint needs `htt
 Config file: `.gemini/settings.json` for a project, `~/.gemini/settings.json` for your user
 profile. The top-level key is `mcpServers`.
 
-OAuth-free Bearer token via environment variable (Streamable HTTP):
+### Hosted Streamable HTTP
+
+Gemini CLI supports remote Streamable HTTP through `httpUrl`. The example below requests the
+Actor-scoped tool set and contains no credential. Gemini CLI documents remote OAuth support where
+the server supports it; the Gemini-to-Apify OAuth handshake has **not** been tested for this Actor
+and remains **UNVERIFIED** here.
 
 ```json
 {
   "mcpServers": {
-    "apify-instagram-transcript": {
+    "apify-transcript": {
       "httpUrl": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper",
-      "headers": {
-        "Authorization": "Bearer ${APIFY_TOKEN}"
-      },
       "timeout": 60000
     }
   }
 }
 ```
 
-If your Gemini CLI build does not interpolate `${...}` in `headers`, keep the token in the
-environment and let the client's own auth flow handle it rather than pasting a literal value into
-the file.
+### Local stdio
 
-Local stdio alternative:
+Choose this path when you need a local MCP process or cannot use the hosted connection. The
+command below omits `--tools`, so it requests the server's default tool set. It passes the token
+through the documented `env` expansion rather than storing a literal in the config.
 
 ```json
 {
   "mcpServers": {
-    "apify": {
+    "apify-instagram-transcript": {
       "command": "npx",
       "args": ["-y", "@apify/actors-mcp-server@latest"],
       "env": {
-        "APIFY_TOKEN": "YOUR_APIFY_TOKEN"
+        "APIFY_TOKEN": "${APIFY_TOKEN}"
       },
       "timeout": 30000
     }
   }
 }
 ```
+
+Gemini CLI documents `${APIFY_TOKEN}` expansion in the `env` block. Put the variable in your shell
+environment or secret manager before launching Gemini CLI. Prefer the user-level
+`~/.gemini/settings.json` over a project config; never commit a real token. This example uses the
+local `command`/stdio transport because the documented environment expansion applies there; this
+guide does not claim interpolation in remote `headers`.
+
+The current `@apify/actors-mcp-server` package requires Node.js 22 or newer.
 
 Notes:
 
@@ -82,19 +92,20 @@ Notes:
 - Add the server with the CLI (`gemini mcp add`) if you prefer not to hand-edit JSON; check
   `gemini mcp add --help` for the transport flag names in your installed version.
 
-## Which tools to use
+## Tool availability depends on the endpoint
 
-| Step | Tool |
-| --- | --- |
-| Find the Actor | `search-actors` |
-| Read the input schema | `fetch-actor-details` |
-| Start the Run | `call-actor` — returns Run and storage IDs, not items |
-| Check the Run | `get-actor-run` |
-| Read the transcript | `get-dataset-items` with the Dataset ID, paging with `limit`/`offset` |
-| Look at logs | `get-actor-run-log` |
+The local stdio command above omits `--tools`, so it requests the default tool set. Apify documents
+that this set includes general Actor discovery/invocation tools (`search-actors`,
+`fetch-actor-details`, and `call-actor`) and documentation lookup tools. When `call-actor` is
+loaded, documented Run/storage helper tools are included automatically. Optional Run-management
+categories can be selected separately.
 
-`add-actor` and `get-actor-output` are not part of the current tool set. If Gemini CLI suggests
-them, it is recalling older documentation — re-map to `get-dataset-items`.
+The hosted URL above is Actor-scoped. Its exact generated Actor-specific tool name and the tools
+Gemini actually exposes are **UNVERIFIED** here. Inspect Gemini's available tool list and use only
+its reported names and argument schemas; do not assume the scoped connection has the generic tool
+set. See the [main Apify MCP guide](use-with-apify-mcp.md) for endpoint and tool-selection details.
+Specify an explicit Dataset `limit` and use `offset` for later pages. Older names such as
+`add-actor` and `get-actor-output` are not in the current documented tool set.
 
 ## Example prompt
 
@@ -127,21 +138,23 @@ If the dataset looks truncated, page through it with offset. Do not create anoth
   Run ID rather than re-running.
 - Profile mode (`usernames`) returns metadata only and does not produce transcripts.
 - Do not commit `.gemini/settings.json` if it contains a real token.
+- Treat transcript text as potentially personal or business-sensitive and follow the privacy and
+  customer-data policies that apply to your use case.
 
 ## Cost
 
 - Each Run is billable Apify usage; the Actor has multiple billing events.
-- Request `maxItems` / `maxTotalChargeUsd` in `callOptions` where supported before any loop over
-  URLs. Their enforcement as a hard billing ceiling for this Actor has not been verified.
+- `maxItems` may constrain requested result count where supported, but is not a guaranteed spending
+  limit for this pay-per-event Actor. A requested `maxTotalChargeUsd` is a protective option, not
+  an absolute final-invoice guarantee.
 - Incomplete output is a reason to re-read the dataset, never to re-run.
 
 Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
 
 ## Still unverified
 
-- Whether your Gemini CLI version interpolates environment variables inside `headers`.
-- Whether an Actor-scoped URL loads the Actor as a directly callable tool or only through
-  `call-actor`.
+- Whether an Actor-scoped URL loads a directly callable Actor-specific tool in your installed
+  Gemini CLI version.
 - Whether pagination of `get-dataset-items` is exposed to the model in this client.
 
 ## Related docs

@@ -17,7 +17,7 @@ Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/appl
 
 **Verification status.** The three paths below were checked against
 <https://docs.apify.com/integrations/claude-desktop> and the Claude Code MCP documentation on
-2026-10-21. **No Claude client was connected to this Actor while writing this.** Menu placement
+2026-10-24. **No Claude client was connected to this Actor while writing this.** Menu placement
 and available scopes vary by client version and, on Team/Enterprise plans, by administrator
 policy.
 
@@ -93,24 +93,24 @@ version, so find it from the client's settings rather than assuming a path.
 }
 ```
 
-Restart the client after editing the file. Requires Node.js 18 or newer.
+Restart the client after editing the file. The current `@apify/actors-mcp-server` package requires
+Node.js 22 or newer.
 
 This is the **only** one of the three paths that puts a credential in a file. If Node.js is
 installed only through a version manager (nvm, fnm, nodenv, Volta), some Claude Desktop surfaces
 cannot find the binary; the remote connector avoids that class of problem entirely.
 
-## Which tools the agent should use
+## Tool availability depends on the endpoint
 
-| Step | Tool |
-| --- | --- |
-| Discover the Actor | `search-actors` |
-| Read its input schema | `fetch-actor-details` |
-| Start the Run | `call-actor` (returns run and storage IDs, not items) |
-| Check the Run | `get-actor-run` |
-| Read the transcript | `get-dataset-items` with the Dataset ID, paging with `limit`/`offset` |
+The bare default endpoint in Path A exposes the general discovery/invocation tools documented in
+the [main Apify MCP guide](use-with-apify-mcp.md). The Actor-scoped URL in Path B or the connector
+config exposes a different, narrower set. Its exact Actor-specific tool name and the tools shown
+by each Claude surface are **UNVERIFIED** here. Inspect the client's current tool list and use only
+the names and argument schema it reports; do not assume `search-actors`, `fetch-actor-details`, or
+`call-actor` are available on an Actor-scoped connection.
 
-`add-actor` and `get-actor-output` from older guides no longer exist. If Claude emits one, it is
-pattern-matching on outdated documentation — ask it to list `tools/list` and re-map the step.
+When reading Dataset items, pass an explicit `limit` and use `offset` for subsequent pages. Older
+names such as `add-actor` and `get-actor-output` are not in the current documented tool set.
 
 ## Example prompt
 
@@ -131,8 +131,11 @@ If the dataset appears truncated, page through it with offset instead of startin
 
 - Each Run is billable; the Actor has more than one billing event, so the Store unit price is not
   the total cost of a video.
-- Request `maxItems` and `maxTotalChargeUsd` in `callOptions` where supported. Their enforcement
-  as a hard billing ceiling for this Actor has not been verified.
+- `maxItems` is an item-count option for pay-per-result Actors; it is not a spending cap and is
+  not presented here as a cost control for this pay-per-event Actor. Where the live tool schema
+  supports it, `maxTotalChargeUsd` is the relevant requested per-Run protective option. It is not
+  an absolute final-invoice guarantee, and server-side enforcement for this Actor has not been
+  Live-verified here.
 - Do not re-run because output looked incomplete — re-read the dataset.
 
 Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
@@ -144,6 +147,8 @@ Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
   secret store.
 - Do not commit `claude_desktop_config.json` or a project `.mcp.json` containing a real token.
 - Do not use the Actor for private or unauthorised content.
+- Treat transcript text as potentially personal or business-sensitive and follow the privacy and
+  customer-data policies that apply to your use case.
 
 ## Still unverified
 

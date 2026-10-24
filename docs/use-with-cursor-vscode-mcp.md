@@ -11,7 +11,7 @@ This repository ships no IDE extension.
 Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/apple_yang/instagram-transcripts-scraper)
 
 **Verification status.** Formats below were taken from the Cursor MCP documentation, the VS Code
-MCP configuration reference, and the Apify Cursor integration page on 2026-10-21. **No editor was
+MCP configuration reference, and the Apify Cursor integration page on 2026-10-24. **No editor was
 connected to this Actor while writing this.** Field names and file locations change between
 releases; if a key is rejected, check your editor's current reference before improvising.
 
@@ -33,11 +33,14 @@ Apify publishes a Cursor plugin that bundles the MCP server, a routing agent, an
 1. In Cursor chat, run `/add-plugin apify`, or install from **Settings → Plugins → search
    "Apify" → Get**.
 2. Choose the scope: this project only, or all projects.
-3. Open **Settings → Tools & MCPs**, find **Apify MCP**, and click **Connect**.
+3. Open **Customize → MCPs**, find **Apify MCP**, and click **Connect**. Cursor's UI can change;
+   use the current MCP management page if this path differs in your version.
 4. Approve the OAuth prompt in the browser.
 
-Read-only tools (`search-actors`, `fetch-actor-details`) work before signing in; running Actors
-and reading datasets require the OAuth connection. The connection persists across sessions.
+The unauthenticated discovery-only URL described in the [main Apify MCP guide](use-with-apify-mcp.md)
+can expose the permitted read-only tools without signing in. The default and Actor-scoped
+connections shown below do not imply unauthenticated access. Running Actors and reading datasets
+require authentication. The OAuth connection persists across sessions.
 
 If Cursor runs in a remote session, devcontainer, or over SSH with no browser, set `APIFY_TOKEN`
 in the environment before starting Cursor instead of using OAuth.
@@ -47,7 +50,7 @@ in the environment before starting Cursor instead of using OAuth.
 Project-scoped: `.cursor/mcp.json`. Global: `~/.cursor/mcp.json`. The top-level key is
 `mcpServers`.
 
-Remote server with OAuth (no token in the file):
+Remote Actor-scoped server with OAuth (no token in the file):
 
 ```json
 {
@@ -120,12 +123,16 @@ Local stdio, same `servers` wrapper:
 }
 ```
 
+The current `@apify/actors-mcp-server` package requires Node.js 22 or newer for this local
+stdio option.
+
 Portable variant, for a client that expects the shared format at the workspace root:
 
 ```json
 {
   "mcpServers": {
     "apify-instagram-transcript": {
+      "type": "http",
       "url": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper"
     }
   }
@@ -143,20 +150,19 @@ Notes:
 
 ---
 
-## What to ask the assistant to do
+## Tool availability depends on the endpoint
 
-The workflow is the same in both editors:
+The examples above use an Actor-scoped endpoint. The exact Actor-specific tool name and the tools
+visible in Cursor, VS Code, or a Copilot surface are **UNVERIFIED** here. Inspect the current MCP
+tool list in the client and use only the names and argument schema it reports. Do not assume an
+Actor-scoped connection also exposes the generic `search-actors`, `fetch-actor-details`, or
+`call-actor` tools.
 
-| Step | Tool |
-| --- | --- |
-| Find the Actor | `search-actors` |
-| Read the input schema | `fetch-actor-details` |
-| Start the Run | `call-actor` — returns run and storage IDs |
-| Check the Run | `get-actor-run` |
-| Read items | `get-dataset-items` with the Dataset ID, paging with `limit`/`offset` |
-
-`add-actor` and `get-actor-output` do not exist in the current server. If the assistant offers
-them, it is working from stale documentation.
+The default endpoint `https://mcp.apify.com` provides the general discovery/invocation tools. For
+its `call-actor` argument shape and the separate Run/Dataset reading flow, see the
+[main Apify MCP guide](use-with-apify-mcp.md). When fetching Dataset items, specify `limit`
+explicitly and use `offset` for later pages. Older names such as `add-actor` and
+`get-actor-output` are not part of the current documented tool set.
 
 ## Example prompts
 
@@ -196,9 +202,11 @@ retries by creating a new Run.
 
 - Each Run bills against your Apify plan; the Actor has multiple billing events.
 - Cursor's own usage is charged separately — a Run costs on both sides.
-- Request `maxItems` / `maxTotalChargeUsd` in `callOptions` where supported, and re-read datasets
-  instead of re-running when output looks incomplete. Enforcement as a hard billing ceiling for
-  this Actor has not been verified.
+- `maxItems` is an item-count option for pay-per-result Actors; it is not a spending cap and is
+  not presented here as a cost control for this pay-per-event Actor. Where the live tool schema
+  supports it, `maxTotalChargeUsd` is the relevant requested per-Run protective option. It is not
+  an absolute final-invoice guarantee, and server-side enforcement for this Actor has not been
+  Live-verified here. Re-read datasets instead of re-running when output looks incomplete.
 - Skills that edit project files make real changes; review diffs before committing.
 
 Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
@@ -210,6 +218,8 @@ Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
   contains a token, either interpolate it from the environment or add the file to `.gitignore`.
 - Do not paste tokens into a chat prompt or a screenshot.
 - Review tool calls before approving them, especially anything that writes to your project.
+- Treat transcript text as potentially personal or business-sensitive and follow the privacy and
+  customer-data policies that apply to your use case.
 
 ## Still unverified
 

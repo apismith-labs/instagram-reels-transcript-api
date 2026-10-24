@@ -1,82 +1,48 @@
-# Use Instagram Reels Transcript API with Rust
+# Rust SDK and Single URL CLI
 
-These examples show how to call the Apify Actor `apple_yang/instagram-transcripts-scraper` from Rust using `tokio`, `reqwest`, `serde`, `dotenvy`, and `csv`.
+This directory contains the Rust 2021 library crate `instagram_transcripts` and the `instagram-transcripts` command-line program. The SDK is synchronous. It is currently developed and verified with Rust 1.99.1; a minimum supported Rust version has not been promised.
 
-**Experimental only:** this sample is not production-reliable. Its batch flow can repeat Actor creation after a post-creation error, and business error or missing transcript handling is incomplete. Reconcile timed-out Runs manually before rerunning to avoid duplicate charges.
+The first G1 release scope includes a reusable Single URL client and a guarded CLI. Native Bulk, Profile, complete CSV processing, persistent JSONL recovery, and Resume are planned for later stages and are not implemented here.
 
-## Requirements
-
-- Rust 1.75 or newer
-- Rust 2021 edition
-
-## Setup
+## Build and test
 
 From this directory:
 
-```bash
-cargo build
+```sh
+cargo build --locked
+cargo test --all-targets --locked
 ```
 
-## Configure `.env`
+The library does not read environment variables, `.env`, or repository files. Provide configuration explicitly through `Config`; only the CLI reads `APIFY_TOKEN` from its process environment.
 
-From the repository root:
+## CLI
 
-```bash
-cp .env.example .env
+The only supported execution command is `single`. It requires a bare HTTPS Instagram `/reel/`, `/reels/`, or `/p/` URL and a positive per-Run charge cap:
+
+```sh
+export APIFY_TOKEN='your-token'
+cargo run -- single 'https://www.instagram.com/reel/your_shortcode/' \
+  --max-total-charge-usd 0.10 \
+  --require-charge-cap \
+  --output-dir ./output
 ```
 
-Edit `.env` and set configuration values:
+The CLI pins Actor Build `0.0.50` and verifies both its Build Number and Build ID before reading the Dataset. Each invocation sends at most one Run-creation POST. A timeout or ambiguous create response is reported as `creation_unknown`; do not rerun automatically until the Run is reconciled manually.
 
-```bash
-APIFY_TOKEN='your_apify_token_here'
-APIFY_ACTOR_ID='apple_yang/instagram-transcripts-scraper'
-INSTAGRAM_SESSIONID=''
-MAX_CONCURRENCY=3
-```
+Output files use unique names, are sanitized recursively, and are written with private permissions on Unix. The `--journal` option currently accepts only `memory`; it does not provide persistent crash recovery.
 
-Quote values that contain special characters such as `&` or `?`.
+## Legacy CSV entrypoint
 
-Do not put Instagram Reel URLs in `.env` for normal usage. Single URL examples take the URL as a CLI argument, and batch examples read URLs from CSV.
+`cargo run --bin batch_csv` is intentionally disabled with a nonzero exit status. The former implementation retried a workflow containing the billable create POST. CSV plan/execute support will return only through the reviewed G3 implementation.
 
-## Run a single URL
+## Safety boundaries
 
-Pass the Reel URL as runtime input:
+- A positive `maxTotalChargeUsd` is required for all Actor Run creation. It is a per-Run request control, not a guarantee of the final bill.
+- The HTTP client disables redirects and does not retry POST requests.
+- Polling and Dataset reads use GET only.
+- Dataset responses must be bare JSON arrays. Reading the configured page limit marks the Dataset incomplete.
+- Results are successful only when the returned Instagram URL uniquely matches the requested shortcode.
+- Credential-shaped keys are removed and credential patterns in strings are redacted at output boundaries. This cannot identify every possible secret format.
+- This G1 implementation provides an in-memory Journal only; persistent recovery and Resume are out of scope.
 
-```bash
-cargo run --bin single_url -- "https://www.instagram.com/reel/your_reel_id/"
-```
-
-Output is saved to:
-
-```text
-sample-output/generated/rust-single-url-response.json
-```
-
-## Run batch CSV processing
-
-Use the default CSV:
-
-```bash
-cargo run --bin batch_csv
-```
-
-Or pass a custom CSV path:
-
-```bash
-cargo run --bin batch_csv -- path/to/urls.csv
-```
-
-The CSV must include a `videoUrl` column.
-
-Batch processing calls the Actor once per URL and may generate billable Apify usage. `MAX_CONCURRENCY` defaults to `3`; higher concurrency can increase cost and rate-limit risk.
-
-Batch outputs are saved to:
-
-```text
-sample-output/generated/rust-batch-results.jsonl
-sample-output/generated/rust-batch-errors.csv
-```
-
-## Security
-
-Do not hard-code `APIFY_TOKEN` or `INSTAGRAM_SESSIONID`. Keep secrets in `.env` or your deployment secret manager, and never commit `.env` or tokens.
+No real Actor request is required to build or test the crate. Tests use synthetic credentials, fake transports, and temporary directories.

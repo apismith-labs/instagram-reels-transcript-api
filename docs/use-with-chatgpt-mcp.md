@@ -12,7 +12,7 @@ Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/appl
 
 **Verification status.** The setup below follows the official Apify ChatGPT integration page
 (<https://docs.apify.com/integrations/chatgpt>) and the Apify MCP server documentation
-(<https://docs.apify.com/mcp>), checked 2026-10-21. **No ChatGPT connection to this Actor was
+(<https://docs.apify.com/mcp>), checked 2026-10-24. **No ChatGPT connection to this Actor was
 made while writing this.** ChatGPT's connector UI, plan gating, and rollout differ between
 accounts, so treat the menu names as "look for something like this", not as a fixed script.
 
@@ -91,24 +91,21 @@ If the dataset looks cut off, page through it with offset. Do not start a second
 retrieve the rest.
 ```
 
-## How ChatGPT should get the data
+## Tool availability depends on the endpoint
 
-The tool names it needs, in order, are:
+This guide's recommended URL above is Actor-scoped. Its exact Actor-specific tool name and the
+tools ChatGPT actually exposes are **UNVERIFIED** here. Inspect the connector's tool list after
+creation and use only the names and argument schema shown there; do not assume it exposes generic
+`search-actors`, `fetch-actor-details`, or `call-actor` tools.
 
-| Step | Tool | What it returns |
-| --- | --- | --- |
-| Find the Actor if it is not already loaded | `search-actors` | Actor search results |
-| Read the input schema | `fetch-actor-details` | Input/output schema, README, pricing |
-| Start the Run | `call-actor` | Run status and storage IDs — **not** the transcript |
-| Check the Run | `get-actor-run` | Status, timings, outcome |
-| Read the transcript | `get-dataset-items` | The items, pageable with `limit`/`offset` |
+The default endpoint `https://mcp.apify.com` provides the general Actor discovery/invocation and
+documentation tools. The main [Apify MCP guide](use-with-apify-mcp.md) documents that flow and the
+default `call-actor` schema. For either endpoint, request a Dataset `limit` explicitly and use
+`offset` for later pages. Never infer that a tool call succeeded merely because the assistant
+claims it did; inspect Run status and returned Dataset items.
 
-If ChatGPT proposes `add-actor` or `get-actor-output`, it is recalling an older version of the
-server. Neither exists in the current tool list. Ask it to list its tools and then use
-`get-dataset-items` with the Dataset ID.
-
-Set run limits in `callOptions` (`maxItems`, `maxTotalChargeUsd`, `timeout`), not in the Actor
-input — see [Cost](#cost).
+Older names such as `add-actor` and `get-actor-output` are not part of the current documented tool
+set. Ask ChatGPT to list the tools it actually has rather than guessing a replacement.
 
 ## If ChatGPT cannot find or call the Actor
 
@@ -144,6 +141,8 @@ Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
   be reviewed, logged, or surfaced in shared links.
 - Do not put a token in the MCP server URL as a query parameter — it ends up in URLs, logs, and
   screenshots.
+- Treat transcript text as potentially personal or business-sensitive and follow the privacy and
+  customer-data policies that apply to your use case.
 - Revoke the connection from Apify Console → Settings → Integrations when you are done.
 
 ## Limitations

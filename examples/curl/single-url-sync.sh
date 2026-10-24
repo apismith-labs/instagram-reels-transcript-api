@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 EXPORTED_APIFY_TOKEN="${APIFY_TOKEN-}"
 EXPORTED_APIFY_ACTOR_ID="${APIFY_ACTOR_ID-}"
+EXPORTED_APIFY_MAX_TOTAL_CHARGE_USD="${APIFY_MAX_TOTAL_CHARGE_USD-}"
 EXPORTED_INSTAGRAM_REEL_URL="${INSTAGRAM_REEL_URL-}"
 EXPORTED_INSTAGRAM_SESSIONID="${INSTAGRAM_SESSIONID-}"
 
@@ -24,6 +25,10 @@ if [[ -n "${EXPORTED_APIFY_ACTOR_ID}" ]]; then
   APIFY_ACTOR_ID="${EXPORTED_APIFY_ACTOR_ID}"
 fi
 
+if [[ -n "${EXPORTED_APIFY_MAX_TOTAL_CHARGE_USD}" ]]; then
+  APIFY_MAX_TOTAL_CHARGE_USD="${EXPORTED_APIFY_MAX_TOTAL_CHARGE_USD}"
+fi
+
 if [[ -n "${EXPORTED_INSTAGRAM_REEL_URL}" ]]; then
   INSTAGRAM_REEL_URL="${EXPORTED_INSTAGRAM_REEL_URL}"
 fi
@@ -34,6 +39,7 @@ fi
 
 ACTOR_ID="${APIFY_ACTOR_ID:-apple_yang/instagram-transcripts-scraper}"
 REEL_URL="${1:-${INSTAGRAM_REEL_URL:-}}"
+MAX_TOTAL_CHARGE_USD="${APIFY_MAX_TOTAL_CHARGE_USD:-}"
 OUTPUT_DIR="${REPO_ROOT}/sample-output/generated"
 OUTPUT_FILE="${OUTPUT_DIR}/curl-single-url-response.json"
 
@@ -47,10 +53,16 @@ if [[ -z "${REEL_URL}" ]]; then
   exit 1
 fi
 
+if [[ ! "${MAX_TOTAL_CHARGE_USD}" =~ ^[0-9]+([.][0-9]+)?$ ]] || \
+   ! awk -v cap="${MAX_TOTAL_CHARGE_USD}" 'BEGIN { exit !(cap + 0 > 0) }'; then
+  echo "Error: APIFY_MAX_TOTAL_CHARGE_USD must be a positive number; no request was sent." >&2
+  exit 1
+fi
+
 mkdir -p "${OUTPUT_DIR}"
 
 ACTOR_ID_FOR_URL="${ACTOR_ID//\//~}"
-API_URL="https://api.apify.com/v2/acts/${ACTOR_ID_FOR_URL}/run-sync-get-dataset-items"
+API_URL="https://api.apify.com/v2/acts/${ACTOR_ID_FOR_URL}/run-sync-get-dataset-items?build=0.0.50&restartOnError=false&maxTotalChargeUsd=${MAX_TOTAL_CHARGE_USD}"
 
 json_escape() {
   local value="$1"
@@ -64,20 +76,28 @@ json_escape() {
 
 VIDEO_URL_JSON="$(json_escape "${REEL_URL}")"
 SESSIONID_JSON="$(json_escape "${INSTAGRAM_SESSIONID:-}")"
+if [[ -n "${SESSIONID_JSON}" ]]; then
+  INPUT_JSON="$(printf '{"videoUrl":"%s","sessionid":"%s"}' "${VIDEO_URL_JSON}" "${SESSIONID_JSON}")"
+else
+  INPUT_JSON="$(printf '{"videoUrl":"%s"}' "${VIDEO_URL_JSON}")"
+fi
 
 # The synchronous dataset-items endpoint is convenient for quick validation.
 # Longer Actor runs may time out here; production workflows should use an async run flow.
 echo "Using Actor ID: ${ACTOR_ID}"
-echo "Running request..."
+echo "Running one synchronous request with Build 0.0.50 and the requested per-Run charge cap..."
 
-curl \
+if ! curl \
   --fail \
   --silent \
   --show-error \
   --request POST "${API_URL}" \
   --header "Authorization: Bearer ${APIFY_TOKEN}" \
   --header "Content-Type: application/json" \
-  --data "$(printf '{"videoUrl":"%s","sessionid":"%s"}' "${VIDEO_URL_JSON}" "${SESSIONID_JSON}")" \
-  --output "${OUTPUT_FILE}"
+  --data "${INPUT_JSON}" \
+  --output "${OUTPUT_FILE}"; then
+  echo "The synchronous request failed or its outcome is unknown. Do not retry the POST automatically; reconcile usage/run history first." >&2
+  exit 1
+fi
 
 echo "Saved raw JSON response to: ${OUTPUT_FILE}"

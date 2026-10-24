@@ -2,6 +2,13 @@
 
 For a first call that prints the transcript, see the canonical [Quick Start](../../docs/quickstart.md); this page covers the synchronous endpoint and its risks.
 
+The asynchronous [Quick Start](../../docs/quickstart.md) is the recommended first-call path. This
+synchronous example is a diagnostic alternative: it has no Run ID for later reconciliation and
+may create a billable Run. It requests Build `0.0.50`, `restartOnError=false`, and a positive
+per-Run charge cap. The requested cap is a protective Run option, not an absolute guarantee of the
+final invoice. Review the [current Actor pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing)
+before running it.
+
 This is the fastest way to verify that:
 
 - Your Apify token works.
@@ -34,14 +41,15 @@ From the repository root.
    APIFY_TOKEN='your_apify_token_here'
    APIFY_ACTOR_ID='apple_yang/instagram-transcripts-scraper'
    INSTAGRAM_SESSIONID=''
-   MAX_CONCURRENCY=3
+   APIFY_MAX_TOTAL_CHARGE_USD='0.10'
    ```
 
 3. Quote values that contain special characters such as `&` or `?`.
 
    `INSTAGRAM_SESSIONID` is optional; leave it empty unless your integration specifically needs
-   it. Do not commit `.env`, and do not put a real token in a command line, a screenshot, or a
-   shared log.
+   it. Set `APIFY_MAX_TOTAL_CHARGE_USD` to a positive number appropriate for your budget; the
+   script rejects a missing, malformed, zero, or negative value before sending a request. Do not
+   commit `.env`, and do not put a real token in a command line, a screenshot, or a shared log.
 
 4. Run the example with a public Instagram URL as runtime input:
 
@@ -55,6 +63,9 @@ if both exported variables and `.env` values are present, the exported values wi
 argument.
 
 The token is always sent as an `Authorization: Bearer` header, never as a URL query parameter.
+Each invocation makes at most one create POST and does not retry it. If the synchronous response
+is lost or times out, stop and reconcile Apify usage/run history before deciding what to do; the
+per-Run cap does not make an automatic retry safe.
 
 > The script loads `.env` with `source`, which means the file is evaluated by the shell. Only do
 > this with a `.env` you created or trust — do not `source` a file someone else sent you.
@@ -98,6 +109,8 @@ record its ID.
   will fail here and need the asynchronous flow.
 - One URL per invocation. This is not the Actor's native `bulkUrls` mode.
 - No retry, no journal, no Run ID, no resume.
+- A lost synchronous response cannot be reconciled from a Run ID returned by this endpoint; do not
+  automatically repeat the POST.
 - Billing applies to the Run that the Actor creates. See
   [../../docs/error-handling-and-retries.md](../../docs/error-handling-and-retries.md) and the
   [Actor pricing page](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing).

@@ -33,11 +33,12 @@ Mode boundaries:
   field", "exactly one entry field", or "do not mix" — the schema has no `oneOf`/`anyOf`, so a
   request carrying several entry fields is not rejected on schema grounds. What the Actor does
   with such a request is **unverified**.
-- **This repository does not implement the three-way choice.** Every example here sends only
-  `videoUrl`. None of them validates, rejects, or selects between the three modes; there is no
-  client-side mode switch to inherit. "Pick one mode" is guidance for hand-written requests, not
-  a behaviour you get from the current code. Native bulk (`bulkUrls`) and Profile (`usernames`)
-  examples are not developed yet — they are V2.1 `B01` and `P01`.
+- This field reference documents the Actor's input schema; it is not a complete cross-language
+  description of client validation. The repository now includes mode-specific Single, Native Bulk,
+  and Profile implementations in several languages. Each client has its own validation and
+  execution contract; see the [compatibility matrix](compatibility.md) and relevant language guide
+  before relying on a particular behavior. Do not assume that the Actor schema enforces the same
+  mode-selection rules as an SDK.
 - Profile mode collects post metadata. Producing transcripts for those posts requires a separate
   Run using `videoUrl` or `bulkUrls` — the Actor does not chain the two for you.
 

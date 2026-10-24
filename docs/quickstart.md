@@ -1,10 +1,12 @@
 # Quick Start
 
-Run one public Instagram Reel URL through the Apify Actor and print its transcript. This starts a real Actor Run and may incur charges. The examples pin Build `0.0.50`, request a `$0.10` per-run charge cap, and set `restartOnError=false`. A requested cap is a protective Run option, not an absolute final-bill guarantee. Review [cost estimation](cost-estimation.md) first.
+Run one public Instagram Reel URL through the Apify Actor and print its transcript. Running this Actor may incur Apify charges. Review [current pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing) before starting a Run. The examples pin Build `0.0.50`, request a positive per-Run charge cap, and set `restartOnError=false`. A requested cap is a protective Run option, not an absolute final-bill guarantee.
 
 Use a public URL you are allowed to process. Replace `REPLACE_WITH_A_REAL_SHORTCODE` with its shortcode. Set `APIFY_TOKEN` in your shell's environment or secret manager; the token is sent only in an `Authorization: Bearer` header, never in a URL or source file. Do not paste it into shell history, logs, or Git.
 
-All examples make one Run-creation `POST`, print the Run ID as soon as the response provides it, poll that same Run with `GET`, then read its default Dataset with `GET`. **If the create request times out or its outcome is unclear, stop and reconcile the Run in Apify before doing anything else. Never retry the create `POST` automatically or manually just because the response was lost.**
+All examples make one Run-creation `POST`, print the Run ID as soon as the response provides it, poll that same Run with `GET`, then read its default Dataset with `GET`. **A create HTTP error, connection loss, timeout, or ambiguous response is not retried. Exit nonzero and print: “Reconcile the existing Run in Apify before retrying.”** A missing token or other pre-request configuration error sends no request.
+
+The examples poll up to 300 times with roughly one-second intervals (about five minutes, plus request time). If the Run is still `READY` or `RUNNING` at that ceiling, continue polling the same Run with `GET`; do not create another Run. A terminal status other than `SUCCEEDED` is reported as a failure.
 
 ## cURL
 
@@ -16,39 +18,49 @@ API='https://api.apify.com/v2'
 ACTOR='apple_yang~instagram-transcripts-scraper'
 INPUT='{"videoUrl":"https://www.instagram.com/reel/REPLACE_WITH_A_REAL_SHORTCODE/"}'
 
-# This is the only create POST. If it times out or returns an ambiguous response, stop; do not repeat it.
+# This is the only create POST. Any HTTP/connection/response error stops here; never repeat it.
 created=$(curl --fail --silent --show-error \
   -X POST "$API/acts/$ACTOR/runs?build=0.0.50&restartOnError=false&maxTotalChargeUsd=0.10" \
   -H "Authorization: Bearer $APIFY_TOKEN" \
   -H 'Content-Type: application/json' \
-  --data "$INPUT") || { echo 'Run creation response unavailable; reconcile in Apify before retrying.' >&2; exit 1; }
-run_id=$(jq -er '.data.id' <<<"$created")
-dataset_id=$(jq -er '.data.defaultDatasetId' <<<"$created")
+  --data "$INPUT") || { echo 'Run creation failed or is uncertain. Reconcile the existing Run in Apify before retrying.' >&2; exit 1; }
+run_id=$(jq -er '.data.id | strings | select(length > 0)' <<<"$created") || { echo 'Run creation response is ambiguous. Reconcile the existing Run in Apify before retrying.' >&2; exit 1; }
+dataset_id=$(jq -er '.data.defaultDatasetId | strings | select(length > 0)' <<<"$created") || { echo 'Run creation response is ambiguous. Reconcile the existing Run in Apify before retrying.' >&2; exit 1; }
 printf 'Run ID: %s\n' "$run_id"
 
 status=''
 for _ in $(seq 1 300); do
-  run=$(curl --fail --silent --show-error \
-    -H "Authorization: Bearer $APIFY_TOKEN" "$API/actor-runs/$run_id")
-  status=$(jq -er '.data.status' <<<"$run")
+  if ! run=$(curl --fail --silent --show-error \
+    -H "Authorization: Bearer $APIFY_TOKEN" "$API/actor-runs/$run_id"); then
+    echo "Run $run_id could not be polled. Continue with GET for this same Run; do not create another Run." >&2
+    exit 1
+  fi
+  status=$(jq -er '.data.status' <<<"$run") || { echo "Run $run_id status response was invalid. Reconcile this same Run; do not create another Run." >&2; exit 1; }
   case "$status" in
     SUCCEEDED|FAILED|ABORTED|TIMED-OUT) break ;;
   esac
   sleep 1
 done
+case "$status" in
+  SUCCEEDED|FAILED|ABORTED|TIMED-OUT) ;;
+  *)
+  printf 'Polling ceiling reached for Run %s (status=%s). Continue polling this same Run with GET; do not create another Run.\n' "$run_id" "$status" >&2
+  exit 1
+    ;;
+esac
 if [ "$status" != SUCCEEDED ]; then
-  printf 'Run %s ended or did not finish successfully (status=%s). Do not create a replacement Run.\n' "$run_id" "$status" >&2
+  printf 'Run %s finished without SUCCEEDED (status=%s). Do not create a replacement Run.\n' "$run_id" "$status" >&2
   exit 1
 fi
 
 items=$(curl --fail --silent --show-error \
   -H "Authorization: Bearer $APIFY_TOKEN" \
   "$API/datasets/$dataset_id/items?format=json")
-jq -er --arg run_id "$run_id" '
+jq -er '
   if length == 0 then error("Dataset is empty") else .[0] end
   | if ((.errMsg // "") != "") then error("Actor item reported errMsg")
     elif ((.text // "") | type) != "string" or (.text | length) == 0 then error("No transcript text in first item")
-    else "Run ID: \($run_id)\nTranscript:\n\(.text)" end
+    else "Transcript:\n\(.text)" end
 ' <<<"$items"
 ```
 
@@ -64,7 +76,9 @@ from urllib.request import Request, urlopen
 
 API = "https://api.apify.com/v2"
 ACTOR = "apple_yang~instagram-transcripts-scraper"
-TOKEN = os.environ["APIFY_TOKEN"]
+TOKEN = os.environ.get("APIFY_TOKEN")
+if not TOKEN:
+    raise SystemExit("Set APIFY_TOKEN in your environment; no request was sent.")
 
 def request(method, url, body=None):
     data = None if body is None else json.dumps(body).encode()
@@ -75,12 +89,17 @@ def request(method, url, body=None):
     with urlopen(req, timeout=60) as response:
         return json.load(response)
 
-# One create POST only. If its outcome is unclear, stop and reconcile in Apify; do not retry.
-created = request("POST", f"{API}/acts/{ACTOR}/runs?build=0.0.50&restartOnError=false&maxTotalChargeUsd=0.10", {
-    "videoUrl": "https://www.instagram.com/reel/REPLACE_WITH_A_REAL_SHORTCODE/"
-})
-run_id = created["data"]["id"]
-dataset_id = created["data"]["defaultDatasetId"]
+# One create POST only. Any create exception or malformed response is not retried.
+try:
+    created = request("POST", f"{API}/acts/{ACTOR}/runs?build=0.0.50&restartOnError=false&maxTotalChargeUsd=0.10", {
+        "videoUrl": "https://www.instagram.com/reel/REPLACE_WITH_A_REAL_SHORTCODE/"
+    })
+    run_id = created["data"]["id"]
+    dataset_id = created["data"]["defaultDatasetId"]
+    if not isinstance(run_id, str) or not run_id or not isinstance(dataset_id, str) or not dataset_id:
+        raise ValueError("missing Run or Dataset ID")
+except Exception:
+    raise SystemExit("Run creation failed or is uncertain. Reconcile the existing Run in Apify before retrying.")
 print(f"Run ID: {run_id}", flush=True)
 
 status = None
@@ -90,8 +109,10 @@ for _ in range(300):
     if status in {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}:
         break
     time.sleep(1)
+if status not in {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}:
+    raise SystemExit(f"Polling ceiling reached for Run {run_id} (status={status}). Continue polling this same Run with GET; do not create another Run.")
 if status != "SUCCEEDED":
-    raise SystemExit(f"Run {run_id} did not succeed (status={status}); do not create a replacement Run")
+    raise SystemExit(f"Run {run_id} finished without SUCCEEDED (status={status}); do not create a replacement Run")
 
 items = request("GET", f"{API}/datasets/{dataset_id}/items?format=json")
 if not items:
@@ -114,7 +135,10 @@ Uses the built-in `fetch`; no package install is required. Save as `quickstart.m
 const API = 'https://api.apify.com/v2';
 const ACTOR = 'apple_yang~instagram-transcripts-scraper';
 const token = process.env.APIFY_TOKEN;
-if (!token) throw new Error('Set APIFY_TOKEN in the environment first');
+if (!token) {
+  console.error('Set APIFY_TOKEN in your environment; no request was sent.');
+  process.exit(1);
+}
 
 async function request(method, url, body) {
   const response = await fetch(url, {
@@ -126,12 +150,21 @@ async function request(method, url, body) {
   return response.json();
 }
 
-// One create POST only. If its outcome is unclear, stop and reconcile in Apify; do not retry.
-const created = await request('POST',
-  `${API}/acts/${ACTOR}/runs?build=0.0.50&restartOnError=false&maxTotalChargeUsd=0.10`,
-  { videoUrl: 'https://www.instagram.com/reel/REPLACE_WITH_A_REAL_SHORTCODE/' });
-const runId = created.data.id;
-const datasetId = created.data.defaultDatasetId;
+// One create POST only. Any create exception or malformed response is not retried.
+let created;
+let runId;
+let datasetId;
+try {
+  created = await request('POST',
+    `${API}/acts/${ACTOR}/runs?build=0.0.50&restartOnError=false&maxTotalChargeUsd=0.10`,
+    { videoUrl: 'https://www.instagram.com/reel/REPLACE_WITH_A_REAL_SHORTCODE/' });
+  runId = created?.data?.id;
+  datasetId = created?.data?.defaultDatasetId;
+  if (typeof runId !== 'string' || !runId || typeof datasetId !== 'string' || !datasetId) throw new Error('malformed response');
+} catch {
+  console.error('Run creation failed or is uncertain. Reconcile the existing Run in Apify before retrying.');
+  process.exit(1);
+}
 console.log(`Run ID: ${runId}`);
 
 let status;
@@ -141,8 +174,13 @@ for (let i = 0; i < 300; i += 1) {
   if (['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) break;
   await new Promise(resolve => setTimeout(resolve, 1000));
 }
+if (!['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
+  console.error(`Polling ceiling reached for Run ${runId} (status=${status}). Continue polling this same Run with GET; do not create another Run.`);
+  process.exit(1);
+}
 if (status !== 'SUCCEEDED') {
-  throw new Error(`Run ${runId} did not succeed (status=${status}); do not create a replacement Run`);
+  console.error(`Run ${runId} finished without SUCCEEDED (status=${status}); do not create a replacement Run`);
+  process.exit(1);
 }
 
 const items = await request('GET', `${API}/datasets/${datasetId}/items?format=json`);

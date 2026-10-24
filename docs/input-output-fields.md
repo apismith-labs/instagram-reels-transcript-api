@@ -47,8 +47,8 @@ Mode boundaries:
 | Mode | Example code available here |
 | --- | --- |
 | Single transcript | Yes — cURL, Python, Node.js, Java, Go, Rust |
-| Native bulk transcript | Yes — Python, Node.js, Go, Java |
-| Profile posts | Yes — Python, Node.js, Go, Java |
+| Native bulk transcript | Yes — Python, Node.js, Go, Java, Rust |
+| Profile posts | Yes — Python, Node.js, Go, Java, Rust |
 
 The table above summarizes the currently implemented examples. Java completed controlled Live checks for Single URL, three-URL Native Bulk, one-row CSV, and GET-only Single Resume; its three-account Profile check was PARTIAL (19 success, one owner attribution unknown, one Actor error). Java CSV `--execute` requires a positive per-Run charge cap supplied through `--max-total-charge-usd` or `APIFY_MAX_TOTAL_CHARGE_USD`. See
 [batch-processing-guide.md](batch-processing-guide.md) for how the existing CSV examples differ
@@ -108,6 +108,7 @@ from native bulk.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `sessionid` | string per the Actor README | **Absent from the pinned input schema.** Its runtime effect is unknown: do not describe it as deprecated, and do not assume it is ignored. The examples here send an empty string. Never commit or log a real value. |
+| `enhancedcrawl` | boolean in current public Actor documentation | Current Actor documentation describes a default of `true` and says additional charges apply only when enhanced retrieval succeeds, starting 2026-11-04. Set `"enhancedcrawl": false` to opt out where supported. This has not been verified against pinned Build `0.0.50`; do not assume this field is accepted or behaves this way on every Build. The price/event rate is unknown. See the [Actor documentation](https://apify.com/apple_yang/instagram-transcripts-scraper.md) and [current pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing). |
 
 Additional notes:
 

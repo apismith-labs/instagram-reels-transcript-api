@@ -21,6 +21,7 @@ All live evidence is scoped to the documented controlled cases and Build `0.0.50
 - Profile mode returns post metadata; it does not generate transcript text.
 - Native Bulk submits multiple URLs in a single Actor Run. CSV Batch creates an independent Run for each non-empty row in supported SDKs; it is not the same mode.
 - Rust CSV defaults to offline planning; execution is explicit and requires a positive per-Run charge cap. Resume is GET-only for supported Single and Bulk records; CSV and Profile Resume are not implemented in Rust.
+- Rust Native Bulk uses a frozen, Rust-specific Batch Status and exit-code contract. It can differ from aggregate status/exit-code conventions in other language clients; see the [Rust Bulk identity and status contract](../examples/rust/docs/g2_identity_contract.md#counts-and-mutually-exclusive-batch-status-d1d2).
 - A requested per-Run charge cap is an execution option, not an absolute final-bill guarantee.
 - The SDKs pin/check Build identity according to their language-specific contracts. The controlled evidence cited here used Build `0.0.50`; do not assume it is the Actor's latest Build.
 - Some languages have not live-tested every mode, failure path, pagination boundary, mixed-failure batch, or ambiguous create outcome. Consult each language README before depending on an unverified behavior.
@@ -42,7 +43,7 @@ For package-install availability, check the corresponding registry and language-
 ## More detail
 
 - [Quick Start](quickstart.md)
-- [Cost estimation](cost-estimation.md)
+- [Current Actor pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing)
 - [Python](../examples/python/README.md)
 - [Node.js](../examples/nodejs/README.md)
 - [Go](../examples/go/README.md)

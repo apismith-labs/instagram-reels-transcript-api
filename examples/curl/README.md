@@ -1,5 +1,7 @@
 # Use Instagram Reels Transcript API with cURL
 
+For a first call that prints the transcript, see the canonical [Quick Start](../../docs/quickstart.md); this page covers the synchronous endpoint and its risks.
+
 This is the fastest way to verify that:
 
 - Your Apify token works.

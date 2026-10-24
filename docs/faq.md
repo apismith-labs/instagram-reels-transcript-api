@@ -2,7 +2,7 @@
 
 ## 1. Will my first call cost money?
 
-It starts a real Actor Run and may incur event charges. The documented examples request a `$0.10` per-Run cap, but that is not an absolute final-bill guarantee. Check the [current Actor pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing) and [cost examples](cost-estimation.md) before running.
+It starts a real Actor Run and may incur Apify charges. Review the [Actor's current pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing) before running. A requested per-Run cap is not an absolute final-bill guarantee.
 
 ## 2. Where does the API token go?
 
@@ -30,7 +30,7 @@ The Quick Start does not use it. The Actor's current public description calls it
 
 ## 8. What does the charge cap do?
 
-It is a per-Run Apify option. It is not a shared budget across a CSV batch and should not be described as an absolute bill limit. Review [cost estimation](cost-estimation.md).
+It is a per-Run Apify option. It is not a shared budget across a CSV batch and should not be described as an absolute bill limit. Review the [Actor's current pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing).
 
 ## 9. How do I choose Single, Bulk, Profile, or CSV?
 
@@ -47,3 +47,19 @@ No. Implemented features and recorded live tests differ by language. Java Profil
 ## 12. Does GitHub Release v0.11.0 publish the Rust crate?
 
 No. A GitHub Release versions the repository. The Rust manifest package is `instagram-transcripts-rust` at `0.1.0`; crates.io publication is separate and is not implied by the repository tag. See [compatibility](compatibility.md).
+
+## 13. Can I resume a Run?
+
+Only where the selected client exposes Resume for that mode. Rust supports GET-only Single and Native Bulk Resume from its journal; it does not support Profile or CSV Resume. Check the [compatibility matrix](compatibility.md) and the relevant SDK guide. Resume reads an existing Run and does not create a replacement.
+
+## 14. What happens to duplicate URLs?
+
+Deduplication is mode- and client-specific. Rust Native Bulk deduplicates typed identities (`/reel/` and `/reels/` are Reel aliases; `/p/` is a distinct Post identity) while retaining source URL mappings. CSV rows represent independent work and can create separate Runs. See the [Rust Bulk contract](../examples/rust/docs/g2_identity_contract.md) and [batch guide](batch-processing-guide.md).
+
+## 15. Can an empty Dataset still incur charges?
+
+Do not assume an empty result is free. Billing depends on the Actor's current pricing and the events recorded for that Run; this repository does not establish a general charge rule for empty Datasets. Check the [current Actor pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing) and the Run's usage details.
+
+## 16. What if Run creation has an unknown outcome?
+
+Do not create a replacement Run. The client does not retry a create POST automatically; reconcile the existing Run using Apify's account history and any Run ID you received. If the outcome remains unclear, stop and contact the project/operator rather than guessing.

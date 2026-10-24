@@ -128,8 +128,11 @@ blocked; OAuth authorisation never completed.
 - Each Actor Run is billable Apify usage, and the Actor has multiple billing events.
 - An incomplete-looking answer is not a reason to re-run. Ask for `get-dataset-items` with a
   higher `limit` or a later `offset`.
-- Request `maxTotalChargeUsd` / `maxItems` in `callOptions` where supported, but do not treat them
-  as a verified hard billing ceiling for this Actor; confirm live tool schema and account controls.
+- `maxItems` is an item-count option for pay-per-result Actors; it is not a spending cap and is
+  not presented here as a cost control for this pay-per-event Actor. Where the live tool schema
+  supports it, `maxTotalChargeUsd` is the relevant requested per-Run protective option. It is not
+  an absolute final-invoice guarantee, and server-side enforcement for this Actor has not been
+  Live-verified here.
 
 Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
 

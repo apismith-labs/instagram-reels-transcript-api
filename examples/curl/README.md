@@ -87,8 +87,11 @@ python3 -m json.tool 'sample-output/generated/curl-single-url-<unique-id>.json' 
 ```
 
 Each invocation stages its response in a temporary file and publishes the unique result only after
-HTTP success. A failed or preflight-rejected invocation does not produce a result path and does not
-delete or overwrite previous successful outputs. Temporary response files are removed on failure.
+HTTP success, using a same-directory rename that refuses to replace an existing file. A failed or
+preflight-rejected invocation does not produce a result path and does not delete or overwrite
+previous successful outputs. A temporary response is removed after an HTTP failure; if publication
+itself fails after HTTP success, the script preserves the downloaded response at the staging path it
+reports so it can be inspected without repeating the POST.
 
 ## Judging the result
 

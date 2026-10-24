@@ -131,8 +131,11 @@ If the dataset appears truncated, page through it with offset instead of startin
 
 - Each Run is billable; the Actor has more than one billing event, so the Store unit price is not
   the total cost of a video.
-- Request `maxItems` and `maxTotalChargeUsd` in `callOptions` where supported. Their enforcement
-  as a hard billing ceiling for this Actor has not been verified.
+- `maxItems` is an item-count option for pay-per-result Actors; it is not a spending cap and is
+  not presented here as a cost control for this pay-per-event Actor. Where the live tool schema
+  supports it, `maxTotalChargeUsd` is the relevant requested per-Run protective option. It is not
+  an absolute final-invoice guarantee, and server-side enforcement for this Actor has not been
+  Live-verified here.
 - Do not re-run because output looked incomplete — re-read the dataset.
 
 Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>

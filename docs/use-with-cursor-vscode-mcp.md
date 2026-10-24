@@ -202,9 +202,11 @@ retries by creating a new Run.
 
 - Each Run bills against your Apify plan; the Actor has multiple billing events.
 - Cursor's own usage is charged separately — a Run costs on both sides.
-- Request `maxItems` / `maxTotalChargeUsd` in `callOptions` where supported, and re-read datasets
-  instead of re-running when output looks incomplete. Enforcement as a hard billing ceiling for
-  this Actor has not been verified.
+- `maxItems` is an item-count option for pay-per-result Actors; it is not a spending cap and is
+  not presented here as a cost control for this pay-per-event Actor. Where the live tool schema
+  supports it, `maxTotalChargeUsd` is the relevant requested per-Run protective option. It is not
+  an absolute final-invoice guarantee, and server-side enforcement for this Actor has not been
+  Live-verified here. Re-read datasets instead of re-running when output looks incomplete.
 - Skills that edit project files make real changes; review diffs before committing.
 
 Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>

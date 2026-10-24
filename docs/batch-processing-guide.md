@@ -6,7 +6,7 @@ this repository do today.
 
 | Approach | How many Actor Runs | Implemented here |
 | --- | --- | --- |
-| **CSV, one Run per URL** (`url` / `videoUrl` per row) | One Run per CSV row | Yes — Python, Node.js, Go (requires explicit `--execute`), and Java (plan-only by default; requires `--execute`) |
+| **CSV, one Run per URL** (`url` / `videoUrl` per row) | One Run per CSV row | Yes — Python, Node.js, Go (requires explicit `--execute`), Rust (plan-only by default; requires `--execute`), and Java (plan-only by default; requires `--execute`) |
 | **Native bulk** (`bulkUrls`, many URLs in one Run) | One Run for many URLs | Yes — Python, Node.js, Go, and Java |
 
 CSV Batch and Native Bulk are separate modes. CSV Batch creates one Run per non-empty CSV row;
@@ -98,12 +98,14 @@ result. Python stores failures in the result JSON rather than writing a separate
 - If the POST outcome is unknown (timeout, dropped connection, unparsable 5xx body), the row is
   marked `creation_unknown` and no retry is attempted. Reconcile against your Apify run history
   first.
-- `--resume RUN_ID` is available for Python Single URL and Go Single URL/Native Bulk when the
-  exact original input and matching Journal record are supplied. Go Resume performs GET-only
-  recovery; it does not support CSV checkpointing or Profile Resume.
+- `--resume RUN_ID` is available for Python Single URL and Go/Rust Single URL and Native Bulk when the
+  exact original input and matching Journal record are supplied. Go and Rust Resume perform GET-only
+  recovery; neither supports CSV checkpointing or Profile Resume. Rust G5 live-verified one Single and its Resume, one three-URL Bulk and its Resume, one single-account Profile request, and one CSV row. Multi-account Profile and multi-row CSV remain unverified; Rust CSV/Profile Resume are unsupported. Actual charges were not independently verified.
 - Failed rows are not retried automatically beyond the transport-level retries described in the
-  error handling guide. Re-running the same CSV re-submits every row, which means paying again
-  for rows that already succeeded.
+  error handling guide. For Rust, CSV `--execute` requires a persistent Journal; successful rows are
+  skipped by `rowId`, duplicate source URLs remain separate rows, and an incomplete/unknown create
+  state stops later scheduling for reconciliation. Other language implementations may resubmit rows
+  when a CSV is run again; check their language-specific recovery rules.
 
 ### Operational notes
 

@@ -1,0 +1,85 @@
+name: Rust offline safety tests
+
+on:
+  push:
+    paths:
+      - "examples/rust/**"
+      - ".github/workflows/rust-ci.yml"
+  pull_request:
+    paths:
+      - "examples/rust/**"
+      - ".github/workflows/rust-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust stable / Ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: examples/rust
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Verify lockfile and offline-only test environment
+        run: |
+          cargo metadata --locked --format-version 1 --no-deps > /dev/null
+          test ! -e ../../.env
+          test -z "${APIFY_TOKEN:-}"
+
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Offline test suite and execution-count gate
+        run: python3 scripts/run_ci_tests.py
+
+      - name: Build
+        run: cargo build --all-targets --locked
+
+      - name: Build and run external consumer crate
+        run: cargo run --manifest-path ci-consumer/Cargo.toml --locked --offline
+
+      - name: Mutation gate
+        env:
+          MUTATION_LOG: ${{ runner.temp }}/rust-mutation-gate.log
+        run: |
+          set -euo pipefail
+          python3 scripts/mutation_gate.py | tee "$MUTATION_LOG"
+          python3 - "$MUTATION_LOG" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+          match = re.search(r"Mutation witnesses: (\d+)/(\d+)", text)
+          if not match:
+              raise SystemExit("Mutation summary missing; refusing to pass.")
+          detected, total = map(int, match.groups())
+          if total < 31 or detected != total:
+            raise SystemExit(f"Mutation gate failed: {detected}/{total}; requires all and at least 31.")
+          print(f"Mutation count gate: {detected}/{total} detected.")
+          PY
+
+      - name: Preserve mutation diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-ci-diagnostics
+          path: ${{ runner.temp }}/rust-mutation-gate.log
+          if-no-files-found: ignore

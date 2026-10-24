@@ -1,23 +1,17 @@
 use serde_json::{Map, Value};
 
-const SENSITIVE: [&str; 16] = [
+const SENSITIVE_SUFFIXES: [&str; 7] = [
     "token",
     "sessionid",
-    "cookie",
-    "authorization",
     "password",
     "secret",
-    "accesstoken",
-    "refreshtoken",
+    "cookie",
+    "authorization",
     "apikey",
-    "idtoken",
-    "authtoken",
-    "sessiontoken",
-    "userpassword",
-    "dbpassword",
-    "xapikey",
-    "xcookie",
 ];
+
+const SENSITIVE_ALIASES: [&str; 4] = ["bearer", "credential", "passwd", "pwd"];
+const SENSITIVE_EXACT: [&str; 2] = ["privatekey", "secretkey"];
 
 pub fn is_sensitive_key(key: &str) -> bool {
     let normalized: String = key
@@ -25,7 +19,11 @@ pub fn is_sensitive_key(key: &str) -> bool {
         .filter(|c| *c != '_' && *c != '-')
         .flat_map(char::to_lowercase)
         .collect();
-    SENSITIVE.contains(&normalized.as_str())
+    SENSITIVE_ALIASES.contains(&normalized.as_str())
+        || SENSITIVE_EXACT.contains(&normalized.as_str())
+        || SENSITIVE_SUFFIXES
+            .iter()
+            .any(|suffix| normalized.ends_with(suffix))
 }
 
 pub fn redact_text(input: &str) -> String {
@@ -225,6 +223,17 @@ mod tests {
             "x-api-key",
             "session-token",
             "X-Cookie",
+            "client_secret",
+            "api_token",
+            "x-auth-token",
+            "proxy-authorization",
+            "set-cookie",
+            "private_key",
+            "secret_key",
+            "passwd",
+            "pwd",
+            "bearer",
+            "credential",
         ] {
             assert!(is_sensitive_key(k));
         }
@@ -233,6 +242,13 @@ mod tests {
             "password_policy",
             "tokenizer",
             "access_token_count",
+            "tokens",
+            "token_budget",
+            "password_hint",
+            "access_token_ttl",
+            "cookie_notice",
+            "authorization_level",
+            "secret_santa",
         ] {
             assert!(!is_sensitive_key(k), "business field removed: {k}");
         }

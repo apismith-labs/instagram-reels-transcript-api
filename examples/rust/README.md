@@ -2,7 +2,7 @@
 
 This directory contains the Rust 2021 library crate `instagram_transcripts` and the `instagram-transcripts` command-line program. The SDK is synchronous. It is currently developed and verified with Rust 1.99.1; a minimum supported Rust version has not been promised.
 
-The first G1 release scope includes a reusable Single URL client and a guarded CLI. Native Bulk, Profile, complete CSV processing, persistent JSONL recovery, and Resume are planned for later stages and are not implemented here.
+The first G1 release scope includes a reusable Single URL client and a guarded CLI. Native Bulk, Profile, complete CSV processing, persistent JSONL recovery, and Resume are planned for later stages and are not implemented here. The design-only [G2 identity and attribution contract](docs/g2_identity_contract.md) documents future Native Bulk deduplication and result-mapping rules; it does not indicate that Bulk is available.
 
 ## Build and test
 

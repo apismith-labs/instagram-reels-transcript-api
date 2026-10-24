@@ -10,9 +10,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MINIMUM_TEST_EXECUTIONS = 85
+MINIMUM_TEST_EXECUTIONS = 86
 SUMMARY = re.compile(
-    r"test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;"
+    r"test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; "
+    r"(\d+) measured; (\d+) filtered out;"
 )
 
 
@@ -38,12 +39,21 @@ def main() -> int:
     passed = sum(int(row[1]) for row in summaries)
     failed = sum(int(row[2]) for row in summaries)
     ignored = sum(int(row[3]) for row in summaries)
+    filtered = sum(int(row[5]) for row in summaries)
+    failed_summaries = sum(row[0] != "ok" for row in summaries)
     executed = passed + failed
     print(
         f"Rust test gate: executed={executed}, passed={passed}, "
-        f"failed={failed}, ignored={ignored}, minimum={MINIMUM_TEST_EXECUTIONS}"
+        f"failed={failed}, ignored={ignored}, filtered={filtered}, "
+        f"minimum={MINIMUM_TEST_EXECUTIONS}"
     )
-    if executed < MINIMUM_TEST_EXECUTIONS or failed or ignored:
+    if (
+        executed < MINIMUM_TEST_EXECUTIONS
+        or failed
+        or ignored
+        or filtered
+        or failed_summaries
+    ):
         print("Rust test count/result gate failed.", file=sys.stderr)
         return 1
     return 0

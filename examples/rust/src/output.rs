@@ -145,6 +145,7 @@ pub fn ensure_output_directory(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::journal::{InMemoryJournal, Journal, JournalRecord};
     use crate::status::{AttributionVerification, BuildVerification, Status};
     use serde_json::json;
     #[test]
@@ -358,14 +359,31 @@ mod tests {
         let raw = &parsed["rawItems"][0];
         assert!(raw.get("id_token").is_none());
         assert!(raw["nested"][0].get("auth_token").is_none());
-        assert!(raw["nested"][1][0].get("session_token").is_none());
-        assert!(raw["nested"][1][1].get("access_token").is_none());
-        assert!(raw["nested"][1][2].get("refresh_token").is_none());
-        assert!(raw["nested"][1][3].get("user_password").is_none());
-        assert!(raw["nested"][1][4].get("db_password").is_none());
-        assert!(raw["nested"][1][5].get("x-api-key").is_none());
-        assert!(raw["nested"][1][6].get("session-token").is_none());
-        assert!(raw["nested"][1][8].get("X-Cookie").is_none());
+        let nested = raw["nested"][1]
+            .as_array()
+            .expect("nested sensitive-key array remains an array");
+        assert_eq!(nested.len(), 8, "sanitization preserves array shape");
+        for (index, key) in [
+            "session_token",
+            "access_token",
+            "refresh_token",
+            "user_password",
+            "db_password",
+            "x-api-key",
+            "session-token",
+            "X-Cookie",
+        ]
+        .iter()
+        .enumerate()
+        {
+            assert!(
+                nested[index]
+                    .as_object()
+                    .expect("nested entry is an object")
+                    .is_empty(),
+                "sensitive field {key} was not removed"
+            );
+        }
         assert_eq!(raw["token_count"], 17);
         assert_eq!(raw["password_policy"], "minimum length");
         assert_eq!(raw["tokenizer"], "whitespace");
@@ -375,6 +393,182 @@ mod tests {
         assert_eq!(parsed["text"], "business transcript remains exactly intact");
         assert_eq!(parsed["segments"][0]["start"], 1.25);
         assert_eq!(parsed["segments"][0]["text"], "segment remains intact");
+    }
+
+    #[test]
+    fn persisted_common_credential_keys_are_removed_at_output_boundaries() {
+        let d = tempfile::tempdir().unwrap();
+        let secrets = [
+            "Q7M2V9K4A1",
+            "R8N3W5L0B2",
+            "S9P4X6M1C3",
+            "T0Q5Y7N2D4",
+            "U1R6Z8P3E5",
+            "V2S7A9Q4F6",
+            "W3T8B0R5G7",
+            "X4U9C1S6H8",
+            "Y5V0D2T7J9",
+            "Z6W1E3U8K0",
+            "A7X2F4V9L1",
+        ];
+        let top_level = crate::sanitize::sanitize_value(&json!({
+            "client_secret": secrets[0],
+            "token_count": 12,
+            "password_policy": "minimum length"
+        }));
+        let top_level_json = serde_json::to_string(&top_level).unwrap();
+        assert!(
+            !top_level_json.contains(secrets[0]),
+            "top-level secret persisted"
+        );
+        assert!(top_level.get("client_secret").is_none());
+        assert_eq!(top_level["token_count"], 12);
+        assert_eq!(top_level["password_policy"], "minimum length");
+
+        let raw = json!({
+            "client_secret": secrets[0],
+            "nested": [
+                {"api_token": secrets[1]},
+                [
+                    {"x-auth-token": secrets[2]},
+                    {"proxy-authorization": secrets[3]},
+                    {"set-cookie": secrets[4]},
+                    {"private_key": secrets[5]},
+                    {"secret_key": secrets[6]},
+                    {"passwd": secrets[7]},
+                    {"pwd": secrets[8]},
+                    {"bearer": secrets[9]},
+                    {"credential": secrets[10]}
+                ]
+            ],
+            "token_count": 12,
+            "password_policy": "minimum length",
+            "tokenizer": "whitespace",
+            "tokens": [1, 2, 3],
+            "token_budget": 300,
+            "password_hint": "favorite color",
+            "access_token_ttl": 3600,
+            "cookie_notice": true,
+            "authorization_level": 4,
+            "secret_santa": "holiday",
+            "shortCode": "AbC123",
+            "duration": 9.5,
+            "count": 3,
+            "active": true
+        });
+        let result = TranscriptResult {
+            status: Status::Success,
+            run_id: Some("run-key-suffix-test".into()),
+            dataset_id: Some("dataset-key-suffix-test".into()),
+            source_url: "https://www.instagram.com/reel/AbC123/".into(),
+            text: Some("ordinary transcript remains verbatim".into()),
+            segments: vec![json!({"start": 1.25, "text": "ordinary segment remains verbatim"})],
+            raw_items: vec![raw],
+            error: None,
+            stage: Some("dataset_classification".into()),
+            build_number: Some("0.0.50".into()),
+            build_id: Some("synthetic-build".into()),
+            build_verification: BuildVerification::Verified,
+            attribution_verification: AttributionVerification::Verified,
+            dataset_complete: true,
+        };
+
+        let debug = format!("{result:?}");
+        for secret in secrets {
+            assert!(!debug.contains(secret), "debug secret persisted: {secret}");
+        }
+
+        let path = write_result(d.path(), &result).unwrap();
+        let saved = fs::read_to_string(path).unwrap();
+        for secret in secrets {
+            assert!(!saved.contains(secret), "secret persisted: {secret}");
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&saved).expect("saved JSON parses");
+        let saved_raw = &parsed["rawItems"][0];
+        assert!(saved_raw.get("client_secret").is_none());
+        assert!(saved_raw["nested"][0].get("api_token").is_none());
+        let nested = saved_raw["nested"][1]
+            .as_array()
+            .expect("nested array preserved");
+        assert_eq!(nested.len(), 9);
+        for (index, key) in [
+            "x-auth-token",
+            "proxy-authorization",
+            "set-cookie",
+            "private_key",
+            "secret_key",
+            "passwd",
+            "pwd",
+            "bearer",
+            "credential",
+        ]
+        .iter()
+        .enumerate()
+        {
+            assert!(
+                nested[index]
+                    .as_object()
+                    .expect("entry remains an object")
+                    .is_empty(),
+                "sensitive field {key} was not removed"
+            );
+        }
+        for (key, expected) in [
+            ("token_count", json!(12)),
+            ("password_policy", json!("minimum length")),
+            ("tokenizer", json!("whitespace")),
+            ("tokens", json!([1, 2, 3])),
+            ("token_budget", json!(300)),
+            ("password_hint", json!("favorite color")),
+            ("access_token_ttl", json!(3600)),
+            ("cookie_notice", json!(true)),
+            ("authorization_level", json!(4)),
+            ("secret_santa", json!("holiday")),
+        ] {
+            assert_eq!(saved_raw[key], expected, "business field changed: {key}");
+        }
+        assert_eq!(saved_raw["shortCode"], "AbC123");
+        assert_eq!(saved_raw["duration"], 9.5);
+        assert_eq!(saved_raw["count"], 3);
+        assert_eq!(saved_raw["active"], true);
+        assert_eq!(parsed["text"], "ordinary transcript remains verbatim");
+        assert_eq!(parsed["segments"][0]["start"], 1.25);
+        assert_eq!(
+            parsed["segments"][0]["text"],
+            "ordinary segment remains verbatim"
+        );
+
+        let journal = InMemoryJournal::default();
+        let record = JournalRecord {
+            stage: "intent".into(),
+            mode: "single".into(),
+            actor_id: "synthetic-actor".into(),
+            source_url: None,
+            run_id: None,
+            dataset_id: None,
+            run_status: None,
+            build_number: None,
+            build_id: None,
+            build_verification: "pending".into(),
+            cap: None,
+            input_digest: None,
+            context: Some(json!({
+                "outer": [{"client_secret": secrets[0], "child": {"api_token": secrets[1]}}],
+                "token_count": 12
+            })),
+            error: None,
+        };
+        assert!(!format!("{record:?}").contains(secrets[0]));
+        journal.append(&record).unwrap();
+        let records = journal.records();
+        let saved_journal = serde_json::to_string(&records).unwrap();
+        for secret in secrets.iter().take(2) {
+            assert!(
+                !saved_journal.contains(secret),
+                "journal secret persisted: {secret}"
+            );
+        }
+        assert_eq!(records[0].context.as_ref().unwrap()["token_count"], 12);
     }
     #[test]
     fn result_path_does_not_overwrite_existing() {

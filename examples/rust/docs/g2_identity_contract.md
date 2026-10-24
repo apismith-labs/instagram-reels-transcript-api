@@ -1,53 +1,97 @@
-# G2 Instagram URL Identity Contract
+# G2 Instagram URL Identity and Attribution Contract
 
-This document defines the identity rules to use when a future Rust Native Bulk implementation deduplicates inputs and attributes Dataset items. It is a design contract only; G2 Bulk behavior is not implemented here.
+This document defines the design contract for a future Rust Native Bulk implementation. It does not mean that G2 Bulk behavior is implemented or available in G1.
 
-## Canonical identity
+## Accepted URLs and identity
 
-For an accepted Instagram video or post URL, use a typed identity:
+G2 must validate each URL with the existing G1 URL rules before planning any Run. The parsed HTTPS host must be exactly `instagram.com` or `www.instagram.com`; do not add `m.instagram.com`, other subdomains, or alternate hosts without a separate contract change. The accepted paths are `/reel/{shortcode}`, `/reels/{shortcode}`, and `/p/{shortcode}`. Query strings, fragments, credentials, explicit ports, whitespace, and other path forms remain invalid under the current validator.
 
-```text
-(media_type, shortcode)
+Introduce a typed helper with a contract equivalent to:
+
+```rust
+pub fn media_identity(url: &str) -> Option<(MediaType, String)>
 ```
 
-The media type is `Reel` for both `/reel/{shortcode}` and `/reels/{shortcode}`, and `Post` for `/p/{shortcode}`. The two Reel path forms are aliases and therefore produce the same identity. A Post and a Reel with the same shortcode remain distinct by default.
+`MediaType` is `Reel` for both `/reel/` and `/reels/`, and `Post` for `/p/`. The identity key is `(MediaType, shortcode)`. Shortcodes are case-sensitive and must never be lowercased or otherwise case-folded. Host spelling and one optional trailing slash do not change identity. `/reel/X` and `/reels/X` are aliases; `/p/X` and `/reel/X` remain different identities even when their shortcode text is equal.
 
-Shortcodes are case-sensitive. Do not lowercase or otherwise case-fold them. Normalize only URL components that do not define media identity, such as the accepted Instagram host spelling and a trailing slash. Query strings and fragments are currently rejected by the Rust G1 input validator; this contract does not change that validation behavior. If a future validator accepts tracking parameters, they must be excluded from the identity only after that policy is explicit and tested.
+This typed identity is distinct from G1's `canonical_video_identity(url) -> Option<String>`, which returns only the shortcode and is used by the already-accepted G1 Single attribution behavior. G2 must not use that shortcode-only helper for typed deduplication or attribution.
 
-Examples:
+For exact URL evidence, define `normalized_url_identity` as the URL after successful validation, with the host normalized to `instagram.com`, the one optional trailing slash removed, and the accepted path and shortcode preserved exactly. This full normalized URL is more specific than `(MediaType, shortcode)`: `/reel/X` and `/reels/X` share a typed Reel identity but have different normalized URL paths. No query or fragment normalization is needed because those inputs are rejected.
 
-| Input | Identity |
-| --- | --- |
-| `https://www.instagram.com/reel/AbC123/` | `(Reel, AbC123)` |
-| `https://instagram.com/reels/AbC123` | `(Reel, AbC123)` |
-| `https://instagram.com/p/AbC123/` | `(Post, AbC123)` |
-| `https://instagram.com/reel/abc123` | `(Reel, abc123)` |
+## Input, identity, and task mapping
 
-The first two URLs are aliases. The third is not merged with them, and the fourth is a different case-sensitive shortcode.
+Build a three-layer plan before any create POST:
 
-## Deduplication and Dataset attribution
+```text
+Original Input URL (index + exact string) -> typed Media Identity -> Unique Task
+```
 
-Future Bulk input deduplication and Dataset result attribution must use this same typed identity function. Reject duplicate input identities (including `/reel/` versus `/reels/` aliases) before creating a Run. Match results by an exact accepted URL identity first. A shortcode-only fallback is safe only when it yields one unique candidate of the expected media type and there is no conflicting URL evidence. Never use result position to assign an item to an input.
+Use zero-based input indexes. Validate every input before creating the plan; an invalid URL should reject the entire request during preflight, identify the offending index safely, and produce zero create POSTs. Deduplicate automatically by `(MediaType, shortcode)`. A duplicate identity does not reject the whole Bulk request.
 
-If a Dataset item is malformed, has conflicting URL and shortcode evidence, maps to multiple inputs, or cannot be uniquely attributed, retain it as unknown or extra according to the public result contract. Do not guess an owner. Incomplete Dataset reads must not be reported as complete success.
+The first occurrence of an identity determines the task's output order. Each unique identity creates one task and one primary result row. Preserve every original input occurrence, including repeated identical URL strings, in aligned `sourceIndexes[]` and `sourceUrls[]` arrays. Do not use a Set or any other representation that loses duplicate count or source position. The arrays preserve original input order and have equal lengths.
 
-## Relationship to G1 Single behavior
+For example, these inputs create two tasks, not an input error:
 
-The current G1 `canonical_video_identity()` returns only the shortcode. Consequently, G1 Single attribution can treat `/reel/X` and `/p/X` as the same identity when comparing a requested URL with a returned Dataset URL. That is an existing, already-accepted Single behavior. This task does not change the G1 validator or Single attribution. G2 must introduce and consistently use the typed identity above for Bulk deduplication and attribution; any later change to Single requires its own contract review and regression tests.
+```text
+0 https://instagram.com/reel/ABC123
+1 https://instagram.com/reels/ABC123
+2 https://instagram.com/p/ABC123
+```
 
-## Future trusted cross-type merging
+The first two occurrences map to one Reel task, and the third maps to a separate Post task. A repeated exact URL also appears twice in `sourceIndexes[]` and `sourceUrls[]`.
 
-Cross-type merging may be considered only if the Actor provides a trustworthy, stable media ID that is demonstrably shared by both representations. Before enabling it, document the ID's issuer and scope, prove it is stable across URL types, reject ambiguous or conflicting mappings, and add fixtures for valid matches, collisions, missing IDs, and malicious/malformed IDs. Until those conditions are independently verified, `(Reel, shortcode)` and `(Post, shortcode)` remain separate identities.
+The following is a target G2 output schema only; G1 does not implement it:
 
-## Required offline test plan for G2
+```json
+{
+  "identity": { "mediaType": "reel", "shortcode": "ABC123" },
+  "sourceIndexes": [0, 1],
+  "sourceUrls": [
+    "https://instagram.com/reel/ABC123",
+    "https://instagram.com/reels/ABC123"
+  ],
+  "status": "success"
+}
+```
 
-- `/reel/X` and `/reels/X` deduplicate to one Reel identity.
-- `/p/X` remains distinct from `/reel/X`.
-- `X` and `x` remain distinct shortcodes.
-- Host spelling and trailing slash do not change an otherwise valid identity.
-- Query and fragment behavior follows the validator policy and never silently changes identity.
-- Duplicate input aliases are rejected before any create POST.
-- Exact URL attribution wins over shortcode-only candidates.
-- Shortcode fallback succeeds only for one type-compatible candidate.
-- URL/shortcode conflicts and ambiguous candidates stay unknown/extra.
+## Dataset attribution
+
+Attribute each Dataset item independently, without using its array position or return order:
+
+1. Prefer exact matching of `normalized_url_identity` when a valid item URL is present.
+2. Otherwise, use typed `(MediaType, shortcode)` evidence only when it identifies exactly one unique task and no URL evidence conflicts.
+3. A shortcode-only fallback is allowed only when the expected type is known and the candidate is unique.
+4. If the same shortcode is requested as both a Post and a Reel and an item contains only that shortcode with no valid URL or media type, mark the item explicitly ambiguous/unknown. Do not assign its transcript to either task.
+
+For example:
+
+```text
+Inputs:  /p/ABC123, /reel/ABC123
+Dataset: shortcode=ABC123, url missing, media type missing
+Expected: ambiguous/unknown; no successful attribution; no positional assignment
+```
+
+One Dataset item may not satisfy multiple distinct tasks. Conflicting URL and shortcode evidence, malformed identity data, duplicate items, extra items, and items that cannot be attributed must be recorded with explicit conservative statuses and safe diagnostics. Do not ignore unassigned Dataset data because another task matched. Incomplete Dataset reads cannot produce an all-success result.
+
+## G1 Single compatibility
+
+G1 `canonical_video_identity()` returns only the shortcode, so G1 Single can currently treat `/reel/X` and `/p/X` as the same identity while comparing a requested URL with a Dataset URL. This is an accepted existing G1 behavior. This design does not change the G1 validator or Single attribution. G2 must use typed identities consistently for Bulk deduplication and attribution. Any later change to Single needs its own contract review and regression tests.
+
+## Future cross-type identity
+
+Do not merge Post and Reel identities based only on matching shortcodes. A future cross-type alias may be considered only when the Actor provides a trustworthy, stable media ID demonstrably shared by both URL types. Before enabling it, document the ID issuer and scope, prove stability across representations, reject missing, colliding, malformed, or conflicting IDs, and add fixtures for each case. Until then, Post and Reel remain distinct.
+
+## Required offline G2 test plan
+
+- `/reel/X` and `/reels/X` deduplicate to one Reel task.
+- `/p/X` remains distinct from `/reel/X`, even with the same shortcode.
+- `X` and `x` remain distinct.
+- Accepted host spellings and one trailing slash do not change typed identity.
+- Query, fragment, userinfo, explicit-port, unsupported-host, and invalid-path inputs fail before any create POST.
+- Duplicate aliases and repeated exact URLs are automatically deduplicated while all source indexes and URL occurrences are preserved.
+- Unique tasks and results retain first-occurrence order.
+- Exact normalized URL attribution takes precedence over fallback evidence.
+- Typed identity fallback succeeds only for one compatible task and with no conflicting URL.
+- `/p/X` and `/reel/X` plus a Dataset item with only shortcode `X` produce an explicit ambiguous/unknown result, never a positional assignment.
+- URL/shortcode conflicts, duplicate Dataset items, extra items, and unassigned items remain explicit and conservative.
 - No result is assigned by array position, and incomplete Dataset state is conservative.

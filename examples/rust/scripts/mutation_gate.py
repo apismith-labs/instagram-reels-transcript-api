@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run five fail-closed source mutations against focused offline witnesses."""
+"""Run six fail-closed source mutations against focused offline witnesses."""
 
 from __future__ import annotations
 
@@ -49,6 +49,14 @@ MUTATIONS = [
         "if i + w.len() < chars.len() && !is_boundary(chars[i + w.len()]) {",
         "if i > 0 && !is_boundary(chars[i - 1]) { return false; }\n    if i + w.len() < chars.len() && !is_boundary(chars[i + w.len()]) {",
         ["--lib", "output::tests::persisted_prefixed_credentials_are_absent_and_json_stays_intact"],
+        "secret persisted",
+    ),
+    (
+        "key-level credential redaction removed or narrowed",
+        "src/sanitize.rs",
+        '    "secret",',
+        '    "secrettail",',
+        ["--lib", "output::tests::persisted_common_credential_keys_are_removed_at_output_boundaries"],
         "secret persisted",
     ),
 ]

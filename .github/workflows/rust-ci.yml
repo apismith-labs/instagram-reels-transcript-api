@@ -18,6 +18,7 @@ jobs:
   rust:
     name: Rust stable / Ubuntu
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: examples/rust
@@ -55,7 +56,7 @@ jobs:
         env:
           MUTATION_LOG: ${{ runner.temp }}/rust-mutation-gate.log
         run: |
-          set -o pipefail
+          set -euo pipefail
           python3 scripts/mutation_gate.py | tee "$MUTATION_LOG"
           python3 - "$MUTATION_LOG" <<'PY'
           import pathlib
@@ -67,8 +68,8 @@ jobs:
           if not match:
               raise SystemExit("Mutation summary missing; refusing to pass.")
           detected, total = map(int, match.groups())
-          if total < 5 or detected != total:
-              raise SystemExit(f"Mutation gate failed: {detected}/{total}; requires all and at least 5.")
+          if total < 6 or detected != total:
+              raise SystemExit(f"Mutation gate failed: {detected}/{total}; requires all and at least 6.")
           print(f"Mutation count gate: {detected}/{total} detected.")
           PY
 

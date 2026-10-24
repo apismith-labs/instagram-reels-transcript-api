@@ -100,7 +100,7 @@ result. Python stores failures in the result JSON rather than writing a separate
   first.
 - `--resume RUN_ID` is available for Python Single URL and Go/Rust Single URL and Native Bulk when the
   exact original input and matching Journal record are supplied. Go and Rust Resume perform GET-only
-  recovery; neither supports CSV checkpointing or Profile Resume. Rust Profile/CSV/Resume are offline-tested; external Actor behavior is not live-verified.
+  recovery; neither supports CSV checkpointing or Profile Resume. Rust G5 live-verified one Single and its Resume, one three-URL Bulk and its Resume, one single-account Profile request, and one CSV row. Multi-account Profile and multi-row CSV remain unverified; Rust CSV/Profile Resume are unsupported. Actual charges were not independently verified.
 - Failed rows are not retried automatically beyond the transport-level retries described in the
   error handling guide. For Rust, CSV `--execute` requires a persistent Journal; successful rows are
   skipped by `rowId`, duplicate source URLs remain separate rows, and an incomplete/unknown create

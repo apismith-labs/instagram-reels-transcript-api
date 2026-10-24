@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-const SENSITIVE_SUFFIXES: [&str; 7] = [
+const SENSITIVE_SUFFIXES: [&str; 13] = [
     "token",
     "sessionid",
     "password",
@@ -8,10 +8,28 @@ const SENSITIVE_SUFFIXES: [&str; 7] = [
     "cookie",
     "authorization",
     "apikey",
+    "pwd",
+    "passwd",
+    "credential",
+    "credentials",
+    "privatekey",
+    "secretkey",
 ];
 
 const SENSITIVE_ALIASES: [&str; 4] = ["bearer", "credential", "passwd", "pwd"];
 const SENSITIVE_EXACT: [&str; 2] = ["privatekey", "secretkey"];
+// These five Actor fields describe behavior/policy (use cookie, require authorization,
+// rotate a secret, mask a cookie, or store a password policy); their JSON values are
+// not credentials. Keep these exact normalized-name exceptions narrow. Unknown keys
+// cannot be classified reliably from names alone, so credential-shaped suffixes remain
+// sensitive by default.
+const BENIGN_SUFFIX_EXCEPTIONS: [&str; 5] = [
+    "usecookie",
+    "requiresauthorization",
+    "rotatesecret",
+    "maskcookie",
+    "storepassword",
+];
 
 pub fn is_sensitive_key(key: &str) -> bool {
     let normalized: String = key
@@ -19,6 +37,9 @@ pub fn is_sensitive_key(key: &str) -> bool {
         .filter(|c| *c != '_' && *c != '-')
         .flat_map(char::to_lowercase)
         .collect();
+    if BENIGN_SUFFIX_EXCEPTIONS.contains(&normalized.as_str()) {
+        return false;
+    }
     SENSITIVE_ALIASES.contains(&normalized.as_str())
         || SENSITIVE_EXACT.contains(&normalized.as_str())
         || SENSITIVE_SUFFIXES
@@ -35,6 +56,11 @@ pub fn redact_text(input: &str) -> String {
             let mut value_start = i + 6;
             while value_start < chars.len() && chars[value_start].is_whitespace() {
                 value_start += 1;
+            }
+            if let Some(end) = redacted_value_end(&chars, value_start) {
+                out.extend(chars[i..end].iter());
+                i = end;
+                continue;
             }
             let (quote, end) = secret_value_end(&chars, value_start);
             if end > value_start {
@@ -54,9 +80,30 @@ pub fn redact_text(input: &str) -> String {
         }
         let mut found = false;
         for key in [
+            "app_secret_key",
+            "secret_key",
+            "secret-key",
+            "secretkey",
+            "api_credential",
             "sessionid",
             "authorization",
             "password",
+            "private_key",
+            "private-key",
+            "privatekey",
+            "app-secret-key",
+            "rsa-private-key",
+            "rsa_private_key",
+            "client_secret",
+            "clientsecret",
+            "client-secret",
+            "credentials",
+            "client_credentials",
+            "client-credentials",
+            "credential",
+            "passwd",
+            "pwd",
+            "secret",
             "cookie",
             "api-key",
             "api_key",
@@ -82,6 +129,14 @@ pub fn redact_text(input: &str) -> String {
                     while j < chars.len() && chars[j].is_whitespace() {
                         j += 1;
                     }
+                    // Output may pass through this sanitizer more than once. Keep an
+                    // existing marker intact instead of re-redacting its closing `]`.
+                    if let Some(end) = redacted_value_end(&chars, j) {
+                        out.extend(chars[i..end].iter());
+                        i = end;
+                        found = true;
+                        break;
+                    }
                     let mut secret_start = j;
                     let mut bearer_prefix_end = None;
                     if word_at(&chars, secret_start, "bearer") {
@@ -90,6 +145,14 @@ pub fn redact_text(input: &str) -> String {
                             secret_start += 1;
                         }
                         bearer_prefix_end = Some(secret_start);
+                    }
+                    if let Some(end) = redacted_value_end(&chars, secret_start) {
+                        let value_prefix_end = bearer_prefix_end.unwrap_or(secret_start);
+                        out.extend(chars[i..value_prefix_end].iter());
+                        out.extend(chars[secret_start..end].iter());
+                        i = end;
+                        found = true;
+                        break;
                     }
                     let (quote, end) = secret_value_end(&chars, secret_start);
                     if end > j {
@@ -117,6 +180,28 @@ pub fn redact_text(input: &str) -> String {
         }
     }
     out
+}
+
+fn marker_at(chars: &[char], i: usize, marker: &str) -> bool {
+    let marker: Vec<char> = marker.chars().collect();
+    i + marker.len() <= chars.len() && chars[i..i + marker.len()] == marker
+}
+
+fn redacted_value_end(chars: &[char], start: usize) -> Option<usize> {
+    let marker = "[REDACTED]";
+    if marker_at(chars, start, marker) {
+        return Some(start + marker.chars().count());
+    }
+    let quote = *chars.get(start)?;
+    if !matches!(quote, '\'' | '"') || !marker_at(chars, start + 1, marker) {
+        return None;
+    }
+    let after_marker = start + 1 + marker.chars().count();
+    Some(if chars.get(after_marker) == Some(&quote) {
+        after_marker + 1
+    } else {
+        after_marker
+    })
 }
 
 fn word_at(chars: &[char], i: usize, word: &str) -> bool {
@@ -234,6 +319,13 @@ mod tests {
             "pwd",
             "bearer",
             "credential",
+            "db_pwd",
+            "user_passwd",
+            "app_secret_key",
+            "rsa_private_key",
+            "credentials",
+            "api_credential",
+            "client_credentials",
         ] {
             assert!(is_sensitive_key(k));
         }
@@ -249,8 +341,207 @@ mod tests {
             "cookie_notice",
             "authorization_level",
             "secret_santa",
+            "use_cookie",
+            "requires_authorization",
+            "rotate_secret",
+            "mask_cookie",
+            "store_password",
         ] {
             assert!(!is_sensitive_key(k), "business field removed: {k}");
+        }
+    }
+
+    #[test]
+    fn new_text_credential_assignments_are_redacted() {
+        let forms = [
+            (
+                "client_secret=OPAQUE_CLIENT_SECRET_7Q",
+                "OPAQUE_CLIENT_SECRET_7Q",
+            ),
+            ("pwd=OPAQUE_PASSWORD_4M", "OPAQUE_PASSWORD_4M"),
+            ("passwd: OPAQUE_PASSWD_8R", "OPAQUE_PASSWD_8R"),
+            ("private_key=OPAQUE_PRIVATE_KEY_2V", "OPAQUE_PRIVATE_KEY_2V"),
+            (
+                "private-key: OPAQUE_PRIVATE_KEY_DASH_3J",
+                "OPAQUE_PRIVATE_KEY_DASH_3J",
+            ),
+            ("credential='OPAQUE_CREDENTIAL_6N'", "OPAQUE_CREDENTIAL_6N"),
+            (
+                r#"{"client_secret":"OPAQUE_JSON_SECRET_3K"}"#,
+                "OPAQUE_JSON_SECRET_3K",
+            ),
+            (
+                r#"{"private_key": "OPAQUE_JSON_KEY_9D"}"#,
+                "OPAQUE_JSON_KEY_9D",
+            ),
+            (
+                r#"client_secret: "OPAQUE_QUOTED_SECRET_5H""#,
+                "OPAQUE_QUOTED_SECRET_5H",
+            ),
+            ("credentials=OPAQUE_CREDENTIALS_1W", "OPAQUE_CREDENTIALS_1W"),
+        ];
+        for (input, secret) in forms {
+            let redacted = redact_text(input);
+            assert!(!redacted.contains(secret), "secret persisted: {redacted:?}");
+            assert!(
+                redacted.contains("[REDACTED]"),
+                "missing redaction: {redacted:?}"
+            );
+        }
+        assert_eq!(redact_text("crawed empty"), "crawed empty");
+        let natural = "普通中文 Unicode 🙂 transcript remains unchanged ".repeat(40);
+        assert_eq!(redact_text(&natural), natural);
+    }
+
+    #[test]
+    fn bearer_and_composed_redaction_are_idempotent_for_selected_and_generated_inputs() {
+        let selected = [
+            "bearer X",
+            "Bearer X",
+            "Authorization: Bearer X",
+            "authorization: Bearer X and bearer Y",
+            "bearer '[REDACTED]'",
+            "bearer \"[REDACTED]\"",
+            "bearer [REDACTED]",
+            "bearer [REDACTED] token=SECRET",
+            "Bearer 'OPAQUE_SINGLE_SECRET'",
+            "Bearer \"OPAQUE_DOUBLE_SECRET\"",
+            "Authorization: Bearer [REDACTED] token=FOLLOWING_SECRET",
+            "authorization: Bearer \"[REDACTED]\" and token=FOLLOWING_SECRET_2",
+            r#"{"authorization":"Bearer OPAQUE_JSON_SECRET"}"#,
+            r#"{"authorization":"Bearer [REDACTED] token=JSON_FOLLOWING_SECRET"}"#,
+            "token=OPAQUE_SECRET and bearer OPAQUE_BEARER_SECRET",
+            "中文 bearer OPAQUE_UNICODE_SECRET 🙂 保持完整",
+            "ordinary caption with [REDACTED] as literal text",
+            "Bearer [REDACTED] and access_token=FOLLOWING_SECRET_3",
+        ];
+        for input in selected {
+            let once = redact_text(input);
+            let twice = redact_text(&once);
+            assert_eq!(twice, once, "redaction must be idempotent: {input:?}");
+            assert!(
+                !once.contains("[REDACTED]]"),
+                "marker gained a bracket: {once:?}"
+            );
+            if input.contains("SECRET") {
+                assert!(!once.contains("SECRET"), "secret remained: {once:?}");
+            }
+        }
+
+        let json = serde_json::json!({
+            "message": "authorization: Bearer [REDACTED] token=JSON_SECRET",
+            "nested": [{"caption": "privatekey=JSON_PRIVATE_SECRET"}]
+        });
+        let once = sanitize_value(&json);
+        let twice = sanitize_value(&once);
+        assert_eq!(
+            twice, once,
+            "recursive JSON sanitization must be idempotent"
+        );
+        assert!(!once.to_string().contains("JSON_SECRET"));
+
+        let prefixes = [
+            "bearer ",
+            "Bearer ",
+            "Authorization: Bearer ",
+            "authorization: Bearer ",
+            "token=",
+            "access_token=",
+            "session_token=",
+            "secret_key=",
+            "secret-key=",
+            "privatekey=",
+            "PrivateKey=",
+            "api_key=",
+            "x-api-key: ",
+            "password=",
+            "caption: ",
+            "error: bearer ",
+            "\"authorization\":\"Bearer ",
+            "'token':'",
+            "Bearer '[REDACTED]' ",
+            "Bearer \"[REDACTED]\" ",
+        ];
+        let values = [
+            "OPAQUE_SECRET_0",
+            "OPAQUE_SECRET_1",
+            "'OPAQUE_SECRET_2'",
+            "\"OPAQUE_SECRET_3\"",
+            "[REDACTED]",
+            "'[REDACTED]'",
+            "\"[REDACTED]\"",
+            "OPAQUE_SECRET_7,",
+            "OPAQUE_SECRET_8&next=1",
+            "OPAQUE_SECRET_9}tail",
+        ];
+        let suffixes = [
+            "",
+            " and token=TAIL_SECRET_1",
+            " token=TAIL_SECRET_2",
+            " and bearer TAIL_SECRET_3",
+            "&secret_key=TAIL_SECRET_4",
+            ", ordinary words",
+            " 中文与 emoji 🙂",
+            "] tail",
+            " and access_token=TAIL_SECRET_9",
+            "\"} trailing",
+            " ; privatekey=TAIL_SECRET_11",
+            " /cookie=TAIL_SECRET_12",
+            " ordinary",
+            " and Bearer TAIL_SECRET_14",
+            "&session_token=TAIL_SECRET_15",
+            " end.",
+            " more=1",
+            " and token=[REDACTED] token=TAIL_SECRET_18",
+            " ) end",
+            " raw: TAIL_SECRET_20",
+        ];
+        let mut state = 0xD1B5_4A32_D192_ED03_u64;
+        for index in 0..4_000 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            let prefix = prefixes[(state % prefixes.len() as u64) as usize];
+            state ^= state >> 13;
+            state = state.wrapping_mul(1_442_695_040_888_963_407);
+            let value = values[(state % values.len() as u64) as usize];
+            state ^= state << 17;
+            state = state.wrapping_mul(2_862_933_555_777_941_757);
+            let suffix = suffixes[(state % suffixes.len() as u64) as usize];
+            let input = format!("{prefix}{value}{suffix}-{index}");
+            let once = redact_text(&input);
+            let twice = redact_text(&once);
+            assert_eq!(
+                twice, once,
+                "generated case {index} is not idempotent: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn extended_sensitive_key_suffixes_and_benign_flags_are_distinguished() {
+        for key in [
+            "db_pwd",
+            "user_passwd",
+            "app_secret_key",
+            "rsa_private_key",
+            "credentials",
+            "api_credential",
+            "client_credentials",
+        ] {
+            assert!(is_sensitive_key(key), "credential key not protected: {key}");
+        }
+        for key in [
+            "use_cookie",
+            "requires_authorization",
+            "rotate_secret",
+            "mask_cookie",
+            "store_password",
+            "token_count",
+            "password_policy",
+            "tokenizer",
+        ] {
+            assert!(!is_sensitive_key(key), "business key over-redacted: {key}");
         }
     }
 

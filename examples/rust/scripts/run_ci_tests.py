@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MINIMUM_TEST_EXECUTIONS = 86
+MINIMUM_TEST_EXECUTIONS = 93
 SUMMARY = re.compile(
     r"test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; "
     r"(\d+) measured; (\d+) filtered out;"
@@ -19,7 +19,7 @@ SUMMARY = re.compile(
 
 def main() -> int:
     result = subprocess.run(
-        ["cargo", "test", "--all-targets", "--locked"],
+        ["cargo", "test", "--all-targets", "--locked", "--offline"],
         cwd=ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

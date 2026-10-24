@@ -298,6 +298,219 @@ mod tests {
     }
 
     #[test]
+    fn persisted_secret_and_private_key_assignments_are_redacted_across_surfaces() {
+        let d = tempfile::tempdir().unwrap();
+        let secrets = [
+            "OPAQUE_SECRET_KEY_EQUALS_1",
+            "OPAQUE_SECRET_KEY_QUOTED_2",
+            "OPAQUE_PRIVATE_KEY_EQUALS_3",
+            "OPAQUE_PRIVATE_KEY_COLON_4",
+            "OPAQUE_QUERY_KEY_5",
+            "OPAQUE_SEGMENT_KEY_6",
+            "OPAQUE_RAW_JSON_KEY_7",
+            "OPAQUE_RAW_ITEM_KEY_8",
+            "OPAQUE_DIAGNOSTIC_KEY_9",
+            "OPAQUE_JOURNAL_KEY_10",
+        ];
+        let long_tail = "普通的长篇业务文本 secret_santa tokenizer 保持完整。".repeat(40);
+        let result = TranscriptResult {
+            status: Status::Success,
+            run_id: Some("run-synthetic".into()),
+            dataset_id: Some("dataset-synthetic".into()),
+            source_url: format!("https://instagram.com/reel/AbC123?secret_key={}", secrets[4]),
+            text: Some(format!(
+                "secret_key={} and 'secret-key': '{}' and PrivateKey=\"{}\" and privatekey: {} {long_tail}",
+                secrets[0], secrets[1], secrets[2], secrets[3]
+            )),
+            segments: vec![json!({"text":format!("caption secret_key='{}' remains readable around the redaction", secrets[5])})],
+            raw_items: vec![json!({
+                "errMsg":format!(r#"{{"privatekey":"{}","note":"ordinary diagnostic"}}"#, secrets[6]),
+                "caption":format!("privatekey=\"{}\"; normal caption remains", secrets[7]),
+                "shortCode":"AbC123",
+                "count":12,
+                "duration":1.25,
+                "active":true,
+                "business": {
+                    "use_cookie": "feature flag",
+                    "requires_authorization": false,
+                    "rotate_secret": "rotation policy",
+                    "mask_cookie": "UI label",
+                    "store_password": "policy label"
+                }
+            })],
+            error: Some(format!("privatekey='{}'\nordinary error remains", secrets[8])),
+            stage: Some("dataset_classification".into()),
+            build_number: Some("0.0.50".into()),
+            build_id: Some("synthetic-build".into()),
+            build_verification: BuildVerification::Verified,
+            attribution_verification: AttributionVerification::Verified,
+            dataset_complete: true,
+        };
+
+        let path = write_result(d.path(), &result).unwrap();
+        let saved = fs::read_to_string(path).unwrap();
+        for secret in &secrets[..9] {
+            assert!(!saved.contains(secret), "secret persisted: {secret}");
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&saved).expect("saved JSON parses");
+        let transcript = parsed["text"].as_str().expect("text remains a string");
+        assert!(transcript.contains("普通的长篇业务文本"));
+        assert!(transcript.contains("secret_santa tokenizer 保持完整。"));
+        assert!(transcript.len() > 1_000, "non-sensitive text was truncated");
+        assert!(transcript.contains("[REDACTED]"));
+        assert_eq!(
+            parsed["sourceUrl"],
+            "https://instagram.com/reel/AbC123?secret_key=[REDACTED]"
+        );
+        assert!(parsed["segments"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("caption secret_key='[REDACTED]' remains readable"));
+        let raw = &parsed["rawItems"][0];
+        assert!(raw["errMsg"]
+            .as_str()
+            .unwrap()
+            .contains(r#"{"privatekey":"[REDACTED]","note":"ordinary diagnostic"}"#));
+        assert!(raw["caption"]
+            .as_str()
+            .unwrap()
+            .contains("normal caption remains"));
+        assert_eq!(raw["shortCode"], "AbC123");
+        assert_eq!(raw["count"], 12);
+        assert_eq!(raw["duration"], 1.25);
+        assert_eq!(raw["active"], true);
+        assert_eq!(raw["business"]["use_cookie"], "feature flag");
+        assert_eq!(raw["business"]["requires_authorization"], false);
+        assert_eq!(raw["business"]["rotate_secret"], "rotation policy");
+        assert_eq!(raw["business"]["mask_cookie"], "UI label");
+        assert_eq!(raw["business"]["store_password"], "policy label");
+
+        let journal = InMemoryJournal::default();
+        let mut record = JournalRecord {
+            stage: "classified".into(),
+            mode: "single".into(),
+            actor_id: "synthetic-actor".into(),
+            source_url: None,
+            run_id: Some("run-synthetic".into()),
+            dataset_id: Some("dataset-synthetic".into()),
+            run_status: Some("SUCCEEDED".into()),
+            build_number: None,
+            build_id: None,
+            build_verification: "verified".into(),
+            cap: None,
+            input_digest: None,
+            context: None,
+            error: Some(format!("secret_key={}", secrets[9])),
+        };
+        journal.append(&record).unwrap();
+        record.error = journal.records()[0].error.clone();
+        let journal_json = serde_json::to_string(&record).unwrap();
+        assert!(
+            !journal_json.contains(secrets[9]),
+            "journal secret persisted"
+        );
+        assert!(journal_json.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn bearer_redaction_is_idempotent_through_serialize_write_and_journal() {
+        let d = tempfile::tempdir().unwrap();
+        let result = TranscriptResult {
+            status: Status::Success,
+            run_id: Some("run-bearer-test".into()),
+            dataset_id: Some("dataset-bearer-test".into()),
+            source_url: "https://instagram.com/reel/AbC123".into(),
+            text: Some(
+                concat!(
+                    "bearer OPAQUE_BEARER_1 | Bearer OPAQUE_BEARER_2 | ",
+                    "Authorization: Bearer OPAQUE_AUTH_3 | ",
+                    "authorization: Bearer OPAQUE_AUTH_4 and bearer OPAQUE_BEARER_5 | ",
+                    "bearer '[REDACTED]' | bearer \"[REDACTED]\" | ",
+                    "bearer [REDACTED] token=OPAQUE_FOLLOWING_6 | ",
+                    "Authorization: Bearer [REDACTED] token=OPAQUE_FOLLOWING_7 | ",
+                    "普通中文与 Emoji 🙂 完整保留"
+                )
+                .into(),
+            ),
+            segments: vec![json!({"text":"Bearer OPAQUE_SEGMENT_8"})],
+            raw_items: vec![json!({
+                "errMsg":"Authorization: Bearer OPAQUE_RAW_9",
+                "caption":"bearer OPAQUE_CAPTION_10"
+            })],
+            error: Some("bearer OPAQUE_RESULT_ERROR_11".into()),
+            stage: Some("done".into()),
+            build_number: Some("0.0.50".into()),
+            build_id: Some("synthetic-build".into()),
+            build_verification: BuildVerification::Verified,
+            attribution_verification: AttributionVerification::Verified,
+            dataset_complete: true,
+        };
+
+        let serialized = serde_json::to_string(&result).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(
+            crate::sanitize::sanitize_value(&value),
+            value,
+            "Result Serialize output must already be a stable sanitized value"
+        );
+        let reparsed: TranscriptResult = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(reparsed).unwrap(), value);
+
+        let output_path = write_result(d.path(), &result).unwrap();
+        let saved = fs::read_to_string(output_path).unwrap();
+        assert!(
+            !saved.contains("[REDACTED]]"),
+            "write_result added a bracket"
+        );
+        let saved_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        for secret in [
+            "OPAQUE_BEARER_1",
+            "OPAQUE_BEARER_2",
+            "OPAQUE_AUTH_3",
+            "OPAQUE_AUTH_4",
+            "OPAQUE_BEARER_5",
+            "OPAQUE_FOLLOWING_6",
+            "OPAQUE_FOLLOWING_7",
+            "OPAQUE_SEGMENT_8",
+            "OPAQUE_RAW_9",
+            "OPAQUE_CAPTION_10",
+            "OPAQUE_RESULT_ERROR_11",
+        ] {
+            assert!(!saved.contains(secret), "secret persisted: {secret}");
+        }
+        let saved_text = saved_value["text"].as_str().unwrap();
+        assert!(saved_text.contains("bearer '[REDACTED]'"));
+        assert!(saved_text.contains("bearer \"[REDACTED]\""));
+        assert!(saved_text.contains("普通中文与 Emoji 🙂 完整保留"));
+
+        let journal = InMemoryJournal::default();
+        let record = JournalRecord {
+            stage: "run_failed".into(),
+            mode: "single".into(),
+            actor_id: "synthetic-actor".into(),
+            source_url: None,
+            run_id: Some("run-bearer-test".into()),
+            dataset_id: Some("dataset-bearer-test".into()),
+            run_status: None,
+            build_number: None,
+            build_id: None,
+            build_verification: "unknown".into(),
+            cap: None,
+            input_digest: None,
+            context: None,
+            error: Some("Bearer OPAQUE_JOURNAL_12".into()),
+        };
+        journal.append(&record).unwrap();
+        let journal_record = journal.records().remove(0);
+        let journal_json = serde_json::to_string(&journal_record).unwrap();
+        let journal_debug = format!("{journal_record:?}");
+        assert!(!journal_json.contains("OPAQUE_JOURNAL_12"));
+        assert!(!journal_debug.contains("OPAQUE_JOURNAL_12"));
+        assert!(!journal_json.contains("[REDACTED]]"));
+        assert!(!journal_debug.contains("[REDACTED]]"));
+    }
+
+    #[test]
     fn persisted_nested_sensitive_keys_are_removed_without_damaging_business_fields() {
         let d = tempfile::tempdir().unwrap();
         let secrets = [
@@ -570,6 +783,203 @@ mod tests {
         }
         assert_eq!(records[0].context.as_ref().unwrap()["token_count"], 12);
     }
+    #[test]
+    fn persisted_extended_text_credentials_are_redacted_across_output_surfaces() {
+        let d = tempfile::tempdir().unwrap();
+        let secrets = [
+            "OPAQUE_CLIENT_SECRET_7Q",
+            "OPAQUE_PASSWORD_4M",
+            "OPAQUE_PASSWD_8R",
+            "OPAQUE_PRIVATE_KEY_2V",
+            "OPAQUE_CREDENTIAL_6N",
+            "OPAQUE_JSON_SECRET_3K",
+            "OPAQUE_JSON_KEY_9D",
+            "OPAQUE_QUOTED_SECRET_5H",
+            "OPAQUE_RAW_CLIENT_SECRET_3P",
+            "OPAQUE_RAW_PASSWD_5T",
+            "OPAQUE_CAPTION_CREDENTIAL_8L",
+            "OPAQUE_RAW_CREDENTIALS_2M",
+            "OPAQUE_ERROR_PRIVATE_KEY_4C",
+            "OPAQUE_ERROR_PWD_6V",
+            "OPAQUE_JOURNAL_CLIENT_SECRET_9B",
+            "OPAQUE_JOURNAL_CREDENTIAL_1N",
+        ];
+        let long_plain = "ordinary 中文 transcript 🙂 remains byte-for-byte intact ".repeat(35);
+        let result = TranscriptResult {
+            status: Status::Success,
+            run_id: Some("run-text-redaction".into()),
+            dataset_id: Some("dataset-text-redaction".into()),
+            source_url: "https://www.instagram.com/reel/AbC123/".into(),
+            text: Some(format!(
+                "client_secret={} pwd={} passwd={} private_key={} credential={} {long_plain}",
+                secrets[0], secrets[1], secrets[2], secrets[3], secrets[4]
+            )),
+            segments: vec![json!({
+                "start": 1.25,
+                "text": format!(r#"{{"client_secret":"{}","private_key":"{}","credential":"{}"}}"#, secrets[5], secrets[6], secrets[7])
+            })],
+            raw_items: vec![json!({
+                "errMsg": format!("upstream client_secret={} and passwd={}", secrets[8], secrets[9]),
+                "caption": format!("credential={} ordinary caption", secrets[10]),
+                "note": format!("credentials={}", secrets[11]),
+                "use_cookie": true,
+                "requires_authorization": false,
+                "rotate_secret": "daily",
+                "mask_cookie": "enabled",
+                "store_password": "policy-v2"
+            })],
+            error: Some(format!("private_key={} pwd={}", secrets[12], secrets[13])),
+            stage: Some("dataset_classification".into()),
+            build_number: Some("0.0.50".into()),
+            build_id: Some("synthetic-build".into()),
+            build_verification: BuildVerification::Verified,
+            attribution_verification: AttributionVerification::Verified,
+            dataset_complete: true,
+        };
+
+        let path = write_result(d.path(), &result).unwrap();
+        let saved = fs::read_to_string(path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&saved).expect("saved JSON parses");
+        let debug = format!("{result:?}");
+        for secret in secrets {
+            assert!(!saved.contains(secret), "secret persisted: {secret}");
+            assert!(!debug.contains(secret), "debug secret persisted: {secret}");
+        }
+        let saved_text = parsed["text"].as_str().expect("text remains string");
+        assert!(saved_text.ends_with(&long_plain));
+        assert_eq!(parsed["segments"][0]["start"], 1.25);
+        assert!(parsed["segments"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("[REDACTED]"));
+        let sanitized_embedded_json: serde_json::Value =
+            serde_json::from_str(parsed["segments"][0]["text"].as_str().unwrap())
+                .expect("embedded JSON string remains valid JSON after redaction");
+        for field in ["client_secret", "private_key", "credential"] {
+            assert_eq!(sanitized_embedded_json[field], "[REDACTED]");
+        }
+        assert!(parsed["rawItems"][0]["errMsg"]
+            .as_str()
+            .unwrap()
+            .contains("[REDACTED]"));
+        assert!(parsed["rawItems"][0]["caption"]
+            .as_str()
+            .unwrap()
+            .contains("ordinary caption"));
+        for (key, expected) in [
+            ("use_cookie", json!(true)),
+            ("requires_authorization", json!(false)),
+            ("rotate_secret", json!("daily")),
+            ("mask_cookie", json!("enabled")),
+            ("store_password", json!("policy-v2")),
+        ] {
+            assert_eq!(
+                parsed["rawItems"][0][key], expected,
+                "business field changed: {key}"
+            );
+        }
+
+        let journal = InMemoryJournal::default();
+        let record = JournalRecord {
+            stage: "terminal".into(),
+            mode: "single".into(),
+            actor_id: "synthetic-actor".into(),
+            source_url: None,
+            run_id: Some("run-text-redaction".into()),
+            dataset_id: None,
+            run_status: None,
+            build_number: None,
+            build_id: None,
+            build_verification: "verified".into(),
+            cap: None,
+            input_digest: None,
+            context: None,
+            error: Some(format!(
+                "client_secret={} credential={}",
+                secrets[14], secrets[15]
+            )),
+        };
+        assert!(!format!("{record:?}").contains(secrets[14]));
+        journal.append(&record).unwrap();
+        let saved_journal = serde_json::to_string(&journal.records()).unwrap();
+        for secret in secrets {
+            assert!(
+                !saved_journal.contains(secret),
+                "journal secret persisted: {secret}"
+            );
+        }
+    }
+
+    #[test]
+    fn extended_credential_keys_removed_and_business_flags_preserved_on_disk() {
+        let d = tempfile::tempdir().unwrap();
+        let keys = [
+            ("db_pwd", "OPAQUE_DB_PWD_1A"),
+            ("user_passwd", "OPAQUE_USER_PASSWD_2B"),
+            ("app_secret_key", "OPAQUE_APP_SECRET_3C"),
+            ("rsa_private_key", "OPAQUE_RSA_PRIVATE_4D"),
+            ("credentials", "OPAQUE_CREDENTIALS_5E"),
+            ("api_credential", "OPAQUE_API_CREDENTIAL_6F"),
+            ("client_credentials", "OPAQUE_CLIENT_CREDENTIALS_7G"),
+        ];
+        let mut actor_item = serde_json::Map::new();
+        for (key, value) in keys {
+            actor_item.insert(key.into(), json!(value));
+        }
+        actor_item.insert("nested".into(), json!([{"db_pwd":"OPAQUE_NESTED_PWD_8H"}]));
+        actor_item.insert("token_count".into(), json!(12));
+        actor_item.insert("password_policy".into(), json!("minimum length"));
+        actor_item.insert("tokenizer".into(), json!("whitespace"));
+        for (key, value) in [
+            ("use_cookie", json!(true)),
+            ("requires_authorization", json!(false)),
+            ("rotate_secret", json!("daily")),
+            ("mask_cookie", json!("enabled")),
+            ("store_password", json!("policy-v2")),
+        ] {
+            actor_item.insert(key.into(), value);
+        }
+        let result = TranscriptResult {
+            status: Status::Success,
+            run_id: Some("run-key-redaction".into()),
+            dataset_id: Some("dataset-key-redaction".into()),
+            source_url: "https://www.instagram.com/reel/AbC123/".into(),
+            text: Some("plain transcript remains intact".into()),
+            segments: vec![],
+            raw_items: vec![serde_json::Value::Object(actor_item)],
+            error: None,
+            stage: Some("done".into()),
+            build_number: Some("0.0.50".into()),
+            build_id: Some("synthetic-build".into()),
+            build_verification: BuildVerification::Verified,
+            attribution_verification: AttributionVerification::Verified,
+            dataset_complete: true,
+        };
+        let path = write_result(d.path(), &result).unwrap();
+        let saved = fs::read_to_string(path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&saved).expect("saved JSON parses");
+        for (_, secret) in keys {
+            assert!(!saved.contains(secret), "secret persisted: {secret}");
+        }
+        assert!(
+            !saved.contains("OPAQUE_NESTED_PWD_8H"),
+            "nested secret persisted"
+        );
+        let raw = &parsed["rawItems"][0];
+        for (key, _) in keys {
+            assert!(raw.get(key).is_none(), "sensitive key retained: {key}");
+        }
+        assert_eq!(raw["nested"][0].as_object().unwrap().len(), 0);
+        assert_eq!(raw["token_count"], 12);
+        assert_eq!(raw["password_policy"], "minimum length");
+        assert_eq!(raw["tokenizer"], "whitespace");
+        assert_eq!(raw["use_cookie"], true);
+        assert_eq!(raw["requires_authorization"], false);
+        assert_eq!(raw["rotate_secret"], "daily");
+        assert_eq!(raw["mask_cookie"], "enabled");
+        assert_eq!(raw["store_password"], "policy-v2");
+    }
+
     #[test]
     fn result_path_does_not_overwrite_existing() {
         let d = tempfile::tempdir().unwrap();

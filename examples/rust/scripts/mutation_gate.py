@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run six fail-closed source mutations against focused offline witnesses."""
+"""Run fail-closed source mutations against focused offline witnesses."""
 
 from __future__ import annotations
 
@@ -54,10 +54,58 @@ MUTATIONS = [
     (
         "key-level credential redaction removed or narrowed",
         "src/sanitize.rs",
-        '    "secret",',
-        '    "secrettail",',
+        '    "secret",\n    "cookie",',
+        '    "secrettail",\n    "cookie",',
         ["--lib", "output::tests::persisted_common_credential_keys_are_removed_at_output_boundaries"],
         "secret persisted",
+    ),
+    (
+        "extended text credential redaction narrowed",
+        "src/sanitize.rs",
+        '            "credentials",\n            "client_credentials",',
+        '            "credentialtail",\n            "client_credentials",',
+        ["--lib", "output::tests::persisted_extended_text_credentials_are_redacted_across_output_surfaces"],
+        "secret persisted",
+    ),
+    (
+        "extended JSON key suffix redaction narrowed",
+        "src/sanitize.rs",
+        '    "credentials",\n    "privatekey",',
+        '    "credentialtail",\n    "privatekey",',
+        ["--lib", "output::tests::extended_credential_keys_removed_and_business_flags_preserved_on_disk"],
+        "secret persisted",
+    ),
+    (
+        "explicit benign business-key exception removed",
+        "src/sanitize.rs",
+        '    "usecookie",',
+        '    "usecookie_disabled",',
+        ["--lib", "sanitize::tests::extended_sensitive_key_suffixes_and_benign_flags_are_distinguished"],
+        "business key over-redacted",
+    ),
+    (
+        "private-key text assignment redaction narrowed",
+        "src/sanitize.rs",
+        '            "privatekey",',
+        '            "privatekey_disabled",',
+        ["--lib", "output::tests::persisted_secret_and_private_key_assignments_are_redacted_across_surfaces"],
+        "secret persisted",
+    ),
+    (
+        "Bearer placeholder idempotence removed",
+        "src/sanitize.rs",
+        """            if let Some(end) = redacted_value_end(&chars, value_start) {
+                out.extend(chars[i..end].iter());
+                i = end;
+                continue;
+            }
+""",
+        "            if false { continue; }\n",
+        [
+            "--lib",
+            "sanitize::tests::bearer_and_composed_redaction_are_idempotent_for_selected_and_generated_inputs",
+        ],
+        "redaction must be idempotent",
     ),
 ]
 

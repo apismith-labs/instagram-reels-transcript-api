@@ -72,17 +72,23 @@ per-Run cap does not make an automatic retry safe.
 
 ## Output
 
-The script saves the raw JSON response (a Dataset item array) to:
+On HTTP success, the script publishes the raw JSON response (a Dataset item array) to a new,
+collision-resistant file, for example:
 
 ```text
-sample-output/generated/curl-single-url-response.json
+sample-output/generated/curl-single-url-<unique-id>.json
 ```
 
-It does not print the result to the terminal, so open the file:
+The script prints the exact path for that invocation. Open that path rather than guessing from an
+older file:
 
 ```bash
-python3 -m json.tool sample-output/generated/curl-single-url-response.json | head -40
+python3 -m json.tool 'sample-output/generated/curl-single-url-<unique-id>.json' | head -40
 ```
+
+Each invocation stages its response in a temporary file and publishes the unique result only after
+HTTP success. A failed or preflight-rejected invocation does not produce a result path and does not
+delete or overwrite previous successful outputs. Temporary response files are removed on failure.
 
 ## Judging the result
 

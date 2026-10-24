@@ -37,8 +37,10 @@ Apify publishes a Cursor plugin that bundles the MCP server, a routing agent, an
    use the current MCP management page if this path differs in your version.
 4. Approve the OAuth prompt in the browser.
 
-Read-only tools (`search-actors`, `fetch-actor-details`) work before signing in; running Actors
-and reading datasets require the OAuth connection. The connection persists across sessions.
+The unauthenticated discovery-only URL described in the [main Apify MCP guide](use-with-apify-mcp.md)
+can expose the permitted read-only tools without signing in. The default and Actor-scoped
+connections shown below do not imply unauthenticated access. Running Actors and reading datasets
+require authentication. The OAuth connection persists across sessions.
 
 If Cursor runs in a remote session, devcontainer, or over SSH with no browser, set `APIFY_TOKEN`
 in the environment before starting Cursor instead of using OAuth.

@@ -35,7 +35,29 @@ that each field selects a different transport, and the Apify endpoint needs `htt
 Config file: `.gemini/settings.json` for a project, `~/.gemini/settings.json` for your user
 profile. The top-level key is `mcpServers`.
 
-Local stdio with an environment variable (no token literal in the config):
+### Hosted Streamable HTTP
+
+Gemini CLI supports remote Streamable HTTP through `httpUrl`. The example below requests the
+Actor-scoped tool set and contains no credential. Gemini CLI documents remote OAuth support where
+the server supports it; the Gemini-to-Apify OAuth handshake has **not** been tested for this Actor
+and remains **UNVERIFIED** here.
+
+```json
+{
+  "mcpServers": {
+    "apify-transcript": {
+      "httpUrl": "https://mcp.apify.com?tools=apple_yang/instagram-transcripts-scraper",
+      "timeout": 60000
+    }
+  }
+}
+```
+
+### Local stdio
+
+Choose this path when you need a local MCP process or cannot use the hosted connection. The
+command below omits `--tools`, so it requests the server's default tool set. It passes the token
+through the documented `env` expansion rather than storing a literal in the config.
 
 ```json
 {
@@ -72,16 +94,18 @@ Notes:
 
 ## Tool availability depends on the endpoint
 
-This local server config requests an Actor-scoped tool set. The exact Actor-specific tool name and
-the tools exposed by your Gemini CLI version are **UNVERIFIED** here. Inspect the available tools
-in the client and use only their reported names and argument schema. Do not assume this scoped
-connection includes generic `search-actors`, `fetch-actor-details`, `call-actor`, or
-`get-actor-run-log` tools.
+The local stdio command above omits `--tools`, so it requests the default tool set. Apify documents
+that this set includes general Actor discovery/invocation tools (`search-actors`,
+`fetch-actor-details`, and `call-actor`) and documentation lookup tools. When `call-actor` is
+loaded, documented Run/storage helper tools are included automatically. Optional Run-management
+categories can be selected separately.
 
-The default endpoint `https://mcp.apify.com` provides general Actor discovery and invocation tools;
-see the [main Apify MCP guide](use-with-apify-mcp.md) for that flow. Specify an explicit `limit`
-when reading Dataset items, and use `offset` for later pages. Older names such as `add-actor` and
-`get-actor-output` are not in the current documented tool set.
+The hosted URL above is Actor-scoped. Its exact generated Actor-specific tool name and the tools
+Gemini actually exposes are **UNVERIFIED** here. Inspect Gemini's available tool list and use only
+its reported names and argument schemas; do not assume the scoped connection has the generic tool
+set. See the [main Apify MCP guide](use-with-apify-mcp.md) for endpoint and tool-selection details.
+Specify an explicit Dataset `limit` and use `offset` for later pages. Older names such as
+`add-actor` and `get-actor-output` are not in the current documented tool set.
 
 ## Example prompt
 
@@ -120,8 +144,9 @@ If the dataset looks truncated, page through it with offset. Do not create anoth
 ## Cost
 
 - Each Run is billable Apify usage; the Actor has multiple billing events.
-- Request `maxItems` / `maxTotalChargeUsd` in `callOptions` where supported before any loop over
-  URLs. Their enforcement as a hard billing ceiling for this Actor has not been verified.
+- `maxItems` may constrain requested result count where supported, but is not a guaranteed spending
+  limit for this pay-per-event Actor. A requested `maxTotalChargeUsd` is a protective option, not
+  an absolute final-invoice guarantee.
 - Incomplete output is a reason to re-read the dataset, never to re-run.
 
 Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>

@@ -41,7 +41,6 @@ ACTOR_ID="${APIFY_ACTOR_ID:-apple_yang/instagram-transcripts-scraper}"
 REEL_URL="${1:-${INSTAGRAM_REEL_URL:-}}"
 MAX_TOTAL_CHARGE_USD="${APIFY_MAX_TOTAL_CHARGE_USD:-}"
 OUTPUT_DIR="${REPO_ROOT}/sample-output/generated"
-OUTPUT_FILE="${OUTPUT_DIR}/curl-single-url-response.json"
 
 if [[ -z "${APIFY_TOKEN:-}" ]]; then
   echo "Error: APIFY_TOKEN is required. Set it in your environment or local .env file." >&2
@@ -60,6 +59,20 @@ if [[ ! "${MAX_TOTAL_CHARGE_USD}" =~ ^[0-9]+([.][0-9]+)?$ ]] || \
 fi
 
 mkdir -p "${OUTPUT_DIR}"
+
+OUTPUT_STAGING=""
+cleanup_staging() {
+  if [[ -n "${OUTPUT_STAGING}" ]]; then
+    rm -f "${OUTPUT_STAGING}"
+  fi
+}
+trap cleanup_staging EXIT
+
+# Reserve a collision-resistant temporary path; no previous result is overwritten.
+OUTPUT_STAGING="$(mktemp "${OUTPUT_DIR}/.curl-single-url.XXXXXXXXXX")"
+STAGING_NAME="${OUTPUT_STAGING##*/}"
+OUTPUT_NONCE="${STAGING_NAME#.curl-single-url.}"
+OUTPUT_FILE="${OUTPUT_DIR}/curl-single-url-${OUTPUT_NONCE}.json"
 
 ACTOR_ID_FOR_URL="${ACTOR_ID//\//~}"
 API_URL="https://api.apify.com/v2/acts/${ACTOR_ID_FOR_URL}/run-sync-get-dataset-items?build=0.0.50&restartOnError=false&maxTotalChargeUsd=${MAX_TOTAL_CHARGE_USD}"
@@ -95,9 +108,16 @@ if ! curl \
   --header "Authorization: Bearer ${APIFY_TOKEN}" \
   --header "Content-Type: application/json" \
   --data "${INPUT_JSON}" \
-  --output "${OUTPUT_FILE}"; then
+  --output "${OUTPUT_STAGING}"; then
   echo "The synchronous request failed or its outcome is unknown. Do not retry the POST automatically; reconcile usage/run history first." >&2
   exit 1
 fi
+
+if ! ln "${OUTPUT_STAGING}" "${OUTPUT_FILE}"; then
+  echo "The request succeeded, but its unique output could not be finalized. The response was not published as a result file; inspect the output directory before any retry." >&2
+  exit 1
+fi
+rm -f "${OUTPUT_STAGING}"
+OUTPUT_STAGING=""
 
 echo "Saved raw JSON response to: ${OUTPUT_FILE}"

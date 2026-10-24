@@ -33,9 +33,17 @@ tool names as "what to look for", not as strings to hardcode.
 - A public Instagram Reel/video/post URL
 - Actor ID: `apple_yang/instagram-transcripts-scraper`
 
-Read-only discovery tools (`search-actors`, `fetch-actor-details`, `search-apify-docs`,
-`fetch-apify-docs`) work without a token. **Running Actors and reading datasets always require
-authentication.**
+Unauthenticated discovery is supported only when the `tools` query parameter contains exclusively
+the four tools enabled for use without an account:
+`search-actors`, `fetch-actor-details`, `search-apify-docs`, and `fetch-apify-docs`. For example:
+
+```text
+https://mcp.apify.com?tools=search-actors,fetch-actor-details,search-apify-docs,fetch-apify-docs
+```
+
+The default endpoint (`https://mcp.apify.com`) requires authentication. Running Actors and
+accessing Run or storage data also require authentication. Do not infer that a connection is
+unauthenticated merely because you plan to use read-only operations.
 
 ## Connect to Apify MCP
 
@@ -141,7 +149,7 @@ results.
 
 | What you want | Tool | Notes |
 | --- | --- | --- |
-| Find the Actor | `search-actors` | Works without authentication |
+| Find the Actor | `search-actors` | No-token access only with the restricted four-tool URL above; the default endpoint requires authentication |
 | Read the input schema, output schema, README, pricing | `fetch-actor-details` | This is how the agent learns which fields to send |
 | Start a Run | `call-actor` | Waits up to `waitSecs` (0–45, default 30). Returns **run status and storage IDs, not the results** |
 | Get the Run ID | the `call-actor` response | The run object carries its own ID; keep it |
@@ -271,7 +279,8 @@ When the Run finishes, read the dataset items and report:
 If the dataset looks truncated, page through it with offset instead of starting another Run.
 ```
 
-Several URLs in one Run (native bulk — no example code in this repository yet):
+Several URLs in one Run (Native Bulk SDK examples are available in Python, Node.js, Go, Java, and
+Rust; MCP-specific live compatibility has not been verified):
 
 ```text
 Use Apify MCP with the Actor apple_yang/instagram-transcripts-scraper, bulkUrls mode.
@@ -279,9 +288,10 @@ Submit these URLs in one Run:
 - https://www.instagram.com/reel/example_one/
 - https://www.instagram.com/reel/example_two/
 
-Use `maxItems` as a result-count limit. Only provide `maxTotalChargeUsd` if a project owner has
-approved a numeric budget and the live tool schema exposes the option; do not treat it as a
-verified hard billing ceiling.
+`maxItems` can limit the requested result count where supported; it is not a guaranteed spending
+limit for this pay-per-event Actor. Only provide `maxTotalChargeUsd` if a project owner has
+approved a numeric budget and the live tool schema exposes the option; neither option should be
+treated as an absolute final-invoice guarantee.
 After it finishes, read every dataset item and tell me explicitly which submitted URL each
 transcript belongs to. If the mapping is unclear, say so — do not guess.
 ```
@@ -314,8 +324,10 @@ failed. Field-by-field caveats (units, absent fields, key names that must not be
 - Every Actor Run consumes Apify usage; the Actor has more than one billing event, so the unit
   price on the Store page is not the total price of one video.
 - An agent retrying "because the output looked empty" can add another billable Run. Re-read the
-  existing dataset instead of re-running. `maxItems` and `maxTotalChargeUsd` may be requested in
-  `callOptions`, but their enforcement for this Actor has not been verified.
+  existing dataset instead of re-running. `maxItems` may constrain requested result count where
+  supported, but it is not a spending limit for this pay-per-event Actor. `maxTotalChargeUsd` may
+  be requested in `callOptions`; it is a protective option, not an absolute final-invoice
+  guarantee, and its enforcement for this Actor has not been independently verified here.
 - Bulk and Profile inputs may lead to different or greater usage depending on item counts and
   Actor billing events; comparative cost has not been verified.
 - Whether failed or timed-out Runs are billed has not been verified — do not assume a failure is

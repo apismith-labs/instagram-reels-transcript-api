@@ -88,6 +88,83 @@ class ReelResult:
         return result
 
 
+@dataclass(frozen=True)
+class ProfileInput:
+    """Validated Profile call context; this is not an Actor-schema guarantee."""
+
+    usernames: tuple[str, ...]
+    normalized_usernames: tuple[str, ...]
+    results_limit: int | None
+    skip_pinned_posts: bool | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "usernames": list(self.usernames),
+            "normalizedUsernames": list(self.normalized_usernames),
+            "resultsLimit": self.results_limit,
+            "skipPinnedPosts": self.skip_pinned_posts,
+        }
+
+
+@dataclass(frozen=True)
+class ProfileItemResult:
+    """Profile item summary that deliberately excludes caption/transcript bodies."""
+
+    status: str
+    requested_owner: str | None
+    owner_username: str | None
+    owner_field_state: str
+    attribution: str
+    author_field_conflict: bool
+    post_identity: str
+    post_keys: tuple[str, ...]
+    duplicate_status: str
+    text_state: str
+    segments_state: str
+    segments_count: int | None
+    err_msg_state: str
+    err_msg_state_detail: str
+    err_msg_whitespace_only: bool
+    business_error: str | None
+    business_error_sources: tuple[str, ...]
+    business_error_messages: tuple[str, ...]
+    business_error_field_states: tuple[tuple[str, str], ...]
+    business_error_conflict: bool
+    transcript_assessment: str
+    transcript_data_state: str
+    item_keys: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        result = asdict(self)
+        result["post_keys"] = list(self.post_keys)
+        result["item_keys"] = list(self.item_keys)
+        result["business_error_sources"] = list(self.business_error_sources)
+        result["business_error_messages"] = list(self.business_error_messages)
+        result["business_error_field_states"] = [list(entry) for entry in self.business_error_field_states]
+        return result
+
+
+@dataclass(frozen=True)
+class ProfilePageLedger:
+    dataset_id: str
+    items: tuple[dict[str, Any], ...]
+    page_count: int
+    completeness: str
+    total_item_count: int | None
+    parsed_item_count: int
+    offsets: tuple[int | None, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "dataset_id": self.dataset_id,
+            "page_count": self.page_count,
+            "completeness": self.completeness,
+            "total_item_count": self.total_item_count,
+            "parsed_item_count": self.parsed_item_count,
+            "offsets": list(self.offsets),
+        }
+
+
 def _build_verification(build_number: str | None, build_id: str | None,
                         expected_build_number: str | None,
                         expected_build_id: str | None) -> str:
@@ -444,7 +521,9 @@ def _item_array(value: Any) -> list[dict[str, Any]] | None:
 
 
 def dataset_items(payload: Mapping[str, Any], *, expected_dataset_id: str | None = None,
-                  expected_run_item_count: int | None = None) -> DatasetPage:
+                  expected_run_item_count: int | None = None,
+                  allow_incomplete: bool = False,
+                  allow_unknown_items: bool = False) -> DatasetPage:
     """Extract actual Dataset items and validate echo/count/page completeness."""
     if response_is_error(payload):
         raise MCPParseError("MCP_TOOL_ERROR", "get-dataset-items returned isError=true")
@@ -452,6 +531,10 @@ def dataset_items(payload: Mapping[str, Any], *, expected_dataset_id: str | None
     chosen: tuple[str, list[dict[str, Any]]] | None = None
     for source, candidate in candidates:
         items = _item_array(candidate)
+        if (items is None and allow_unknown_items and isinstance(candidate, list)
+                and all(isinstance(item, Mapping) for item in candidate)
+                and not all(set(item).issubset({"type", "text"}) and "type" in item for item in candidate)):
+            items = [dict(item) for item in candidate]
         if items is not None:
             chosen = source, items
             break
@@ -481,9 +564,9 @@ def dataset_items(payload: Mapping[str, Any], *, expected_dataset_id: str | None
     complete = None
     if total is not None and offset is not None:
         complete = offset == 0 and len(items) == total
-    if offset is not None and offset > 0:
+    if offset is not None and offset > 0 and not allow_incomplete:
         raise MCPParseError("INCOMPLETE_DATASET", "A nonzero page offset cannot establish full completeness")
-    if complete is False:
+    if complete is False and not allow_incomplete:
         raise MCPParseError("INCOMPLETE_DATASET", "Parsed item count does not cover the Dataset")
     raw_fields = tuple(k for k in ("content", "structuredContent", "_meta", "isError") if k in payload)
     return DatasetPage(dataset_id if isinstance(dataset_id, str) else None, tuple(items),
@@ -640,6 +723,451 @@ def acceptance(run: RunMetadata, page: DatasetPage,
                    "costStatus": "OBSERVED" if run.cost_value is not None else "UNKNOWN",
                    "costCapStatus": "NOT_VERIFIED"})
     return result
+
+
+_PROFILE_USERNAME = re.compile(r"^[^\s@/]+$")
+_PROFILE_POST_URL = re.compile(r"^/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)(?:/|$)", re.IGNORECASE)
+_PROFILE_CODE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def validate_profile_input(usernames: Any, *, results_limit: Any = None,
+                           skip_pinned_posts: Any = None) -> ProfileInput:
+    """Validate only client-side safety constraints; never claims schema defaults."""
+    if not isinstance(usernames, (list, tuple)) or not usernames:
+        raise MCPParseError("PROFILE_INPUT_INVALID", "usernames must be a nonempty array")
+    raw_names: list[str] = []
+    comparison: list[str] = []
+    for name in usernames:
+        if not isinstance(name, str) or not name or name != name.strip() or not _PROFILE_USERNAME.fullmatch(name):
+            raise MCPParseError("PROFILE_INPUT_INVALID", "each username must be a nonempty explicit account name")
+        raw_names.append(name)
+        comparison.append(name.casefold())
+    if len(set(comparison)) != len(comparison):
+        raise MCPParseError("PROFILE_USERNAME_AMBIGUOUS", "usernames are duplicated or ambiguous under conservative case-fold comparison")
+    if results_limit is not None and (isinstance(results_limit, bool) or not isinstance(results_limit, int)
+                                     or results_limit <= 0):
+        raise MCPParseError("PROFILE_INPUT_INVALID", "resultsLimit must be a positive integer when supplied")
+    if skip_pinned_posts is not None and not isinstance(skip_pinned_posts, bool):
+        raise MCPParseError("PROFILE_INPUT_INVALID", "skipPinnedPosts must be a Boolean when supplied")
+    # Comparison keys are used only to reject ambiguous inputs. Attribution below
+    # requires exact string equality; case folding is not an equivalence rule.
+    return ProfileInput(tuple(raw_names), tuple(comparison), results_limit, skip_pinned_posts)
+
+
+def _profile_text_state(item: Mapping[str, Any]) -> str:
+    if "text" not in item:
+        return "MISSING"
+    value = item["text"]
+    if value is None:
+        return "NULL"
+    if not isinstance(value, str):
+        return "UNSUPPORTED_TYPE"
+    if not value:
+        return "EMPTY"
+    if not value.strip():
+        return "WHITESPACE_ONLY"
+    return "NONEMPTY_STRING"
+
+
+def _profile_segments_state(item: Mapping[str, Any]) -> tuple[str, int | None]:
+    if "segments" not in item:
+        return "MISSING", None
+    value = item["segments"]
+    if value is None:
+        return "NULL", None
+    if not isinstance(value, list):
+        return "UNSUPPORTED_TYPE", None
+    return ("NONEMPTY_ARRAY", len(value)) if value else ("EMPTY_ARRAY", 0)
+
+
+def _profile_error_state(item: Mapping[str, Any]) -> tuple[str, str, bool, str | None]:
+    if "errMsg" not in item:
+        return "MISSING", "MISSING", False, None
+    value = item["errMsg"]
+    if value is None:
+        return "EMPTY", "NULL", False, None
+    if isinstance(value, str):
+        if not value:
+            return "EMPTY", "EMPTY", False, None
+        if not value.strip():
+            return "EMPTY", "WHITESPACE_ONLY", True, None
+        return "NONEMPTY", "NONEMPTY", False, scrub(value)
+    return "UNSUPPORTED_TYPE", "UNSUPPORTED_TYPE", False, None
+
+
+def _profile_business_errors(item: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...],
+                                                               tuple[tuple[str, str], ...], bool]:
+    sources: list[str] = []
+    messages: list[str] = []
+    states: list[tuple[str, str]] = []
+    for key in ERROR_KEYS:
+        if key not in item:
+            state = "MISSING"
+        else:
+            value = item[key]
+            if value is None:
+                state = "NULL"
+            elif isinstance(value, str) and value == "":
+                state = "EMPTY"
+            elif isinstance(value, str) and not value.strip():
+                state = "WHITESPACE_ONLY"
+            elif isinstance(value, str):
+                state = "NONEMPTY"
+                sources.append(key)
+                messages.append(scrub(value))
+            else:
+                state = "UNSUPPORTED_TYPE"
+        states.append((key, state))
+    return tuple(sources), tuple(messages), tuple(states), len(set(messages)) > 1
+
+
+def _profile_post_url_code(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return None
+    if (parsed.scheme not in ("http", "https") or not parsed.hostname
+            or parsed.hostname.lower() not in ("instagram.com", "www.instagram.com")):
+        return None
+    match = _PROFILE_POST_URL.match(parsed.path)
+    return match.group(1) if match else None
+
+
+def _profile_identity(item: Mapping[str, Any]) -> tuple[str, tuple[str, ...]]:
+    supplied_code = item.get("code")
+    valid_code = supplied_code.strip() if isinstance(supplied_code, str) and supplied_code.strip() else None
+    if valid_code is not None and not _PROFILE_CODE.fullmatch(valid_code):
+        valid_code = None
+    url = item.get("url")
+    url_code = _profile_post_url_code(url)
+    if valid_code and url_code and valid_code != url_code:
+        return "POST_IDENTITY_CONFLICT", ()
+    code = valid_code or url_code
+    keys: list[str] = [f"code:{code}"] if code else []
+    # pk and id are separate namespaces: their semantic equivalence is unverified.
+    for key in ("pk", "id"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            keys.append(f"{key}:{value.strip()}")
+        elif isinstance(value, int) and not isinstance(value, bool):
+            keys.append(f"{key}:{value}")
+    if keys:
+        return "IDENTIFIED", tuple(dict.fromkeys(keys))
+    if isinstance(url, str) and url and _profile_post_url_code(url) is None:
+        try:
+            parsed = urlparse(url)
+            if (parsed.scheme in ("http", "https") and parsed.hostname
+                    and parsed.hostname.lower() in ("instagram.com", "www.instagram.com")):
+                path_parts = [part for part in parsed.path.split("/") if part]
+                if len(path_parts) == 1:
+                    return "PROFILE_PAGE_URL_ONLY", ()
+        except ValueError:
+            pass
+    return "UNAVAILABLE", ()
+
+
+def profile_item(item: Mapping[str, Any], requested_usernames: Sequence[str]) -> ProfileItemResult:
+    """Summarize one Profile item without retaining caption/transcript content."""
+    context = validate_profile_input(requested_usernames)
+    owner_value = item.get("ownerUsername")
+    if "ownerUsername" not in item:
+        owner_field_state = "ABSENT"
+    elif not isinstance(owner_value, str):
+        owner_field_state = "INVALID_TYPE"
+    elif not owner_value:
+        owner_field_state = "EMPTY"
+    elif owner_value != owner_value.strip():
+        owner_field_state = "INVALID_VALUE"
+    else:
+        owner_field_state = "PRESENT"
+    owner = owner_value if owner_field_state == "PRESENT" else None
+    author_value = item.get("userName")
+    author = author_value if isinstance(author_value, str) and author_value else None
+    author_conflict = bool(owner and author and owner != author)
+    if "ownerUsername" not in item:
+        attribution = "CONTEXT_ONLY_UNCONFIRMED" if len(context.usernames) == 1 else "OWNER_UNAVAILABLE"
+        requested_owner = context.usernames[0] if len(context.usernames) == 1 else None
+    elif owner is None:
+        attribution, requested_owner = "OWNER_AMBIGUOUS", None
+    elif owner in context.usernames:
+        attribution, requested_owner = "MATCHED_OWNER", owner
+    elif owner.casefold() in context.normalized_usernames:
+        attribution, requested_owner = "OWNER_AMBIGUOUS", None
+    else:
+        attribution, requested_owner = "OWNER_MISMATCH", None
+
+    post_identity, post_keys = _profile_identity(item)
+    text_state = _profile_text_state(item)
+    segments_state, segments_count = _profile_segments_state(item)
+    err_state, err_state_detail, err_whitespace, err_msg = _profile_error_state(item)
+    error_sources, error_messages, error_field_states, error_conflict = _profile_business_errors(item)
+    business_error = (scrub("; ".join(f"{key}: {message}"
+                                      for key, message in zip(error_sources, error_messages)))
+                      if error_sources else None)
+    transcript_states = (text_state, segments_state)
+    if "UNSUPPORTED_TYPE" in transcript_states:
+        transcript_data_state = "MALFORMED"
+    elif text_state == "NONEMPTY_STRING" or segments_state == "NONEMPTY_ARRAY":
+        transcript_data_state = "PRESENT"
+    else:
+        transcript_data_state = "ABSENT"
+    post_markers = (post_identity == "IDENTIFIED" or any(key in item for key in (
+        "type", "caption", "commentsCount", "videoPlayCount", "videoDuration", "hashtags", "mentions")))
+    if business_error is not None:
+        status = "ACTOR_ITEM_ERROR"
+    elif any(state == "UNSUPPORTED_TYPE" for _key, state in error_field_states):
+        status = "UNKNOWN_SHAPE"
+    elif post_identity == "POST_IDENTITY_CONFLICT":
+        status = "POST_IDENTITY_CONFLICT"
+    elif not post_markers:
+        status = "UNKNOWN_SHAPE"
+    elif attribution != "MATCHED_OWNER":
+        status = attribution
+    else:
+        status = "PROFILE_POST_MATCHED"
+    # An unsupported transcript field is kept as a dimension; it does not make
+    # valid Profile metadata fail because transcript is not a Profile requirement.
+    return ProfileItemResult(
+        status=status, requested_owner=requested_owner, owner_username=owner,
+        owner_field_state=owner_field_state,
+        attribution=attribution, author_field_conflict=author_conflict,
+        post_identity=post_identity, post_keys=post_keys,
+        duplicate_status="NOT_VERIFIABLE", text_state=text_state,
+        segments_state=segments_state, segments_count=segments_count,
+        err_msg_state=err_state, err_msg_state_detail=err_state_detail,
+        err_msg_whitespace_only=err_whitespace, business_error=business_error,
+        business_error_sources=error_sources, business_error_messages=error_messages,
+        business_error_field_states=error_field_states, business_error_conflict=error_conflict,
+        transcript_assessment="NOT_EXPECTED_PROFILE_MODE",
+        transcript_data_state=transcript_data_state,
+        item_keys=tuple(sorted(str(key) for key in item.keys())),
+    )
+
+
+def profile_page_ledger(pages: Sequence[DatasetPage], *, expected_dataset_id: str) -> ProfilePageLedger:
+    """Merge already parsed Dataset pages and prove Dataset-page completeness conservatively."""
+    if not pages:
+        raise MCPParseError("ITEMS_UNAVAILABLE", "No Dataset page was supplied")
+    if not isinstance(expected_dataset_id, str) or not expected_dataset_id.strip():
+        raise MCPParseError("DATASET_ID_UNAVAILABLE", "Profile acceptance requires a Dataset ID")
+    if any(page.dataset_id != expected_dataset_id for page in pages):
+        raise MCPParseError("DATASET_RUN_BINDING_MISMATCH", "Profile Dataset page echo differs from Run metadata")
+    totals = {page.total_item_count for page in pages if page.total_item_count is not None}
+    if len(totals) > 1:
+        raise MCPParseError("DATASET_COUNT_MISMATCH", "Dataset pages report conflicting total counts")
+    offsets = tuple(page.offset for page in pages)
+    if any(offset is None or offset < 0 for offset in offsets):
+        return ProfilePageLedger(expected_dataset_id, tuple(item for page in pages for item in page.items),
+                                 len(pages), "COMPLETENESS_UNKNOWN", next(iter(totals), None),
+                                 sum(len(page.items) for page in pages), offsets)
+    if len(set(offsets)) != len(offsets):
+        raise MCPParseError("DATASET_PAGE_OVERLAP", "Dataset pages repeat an offset")
+    ordered = sorted(pages, key=lambda page: page.offset if page.offset is not None else -1)
+    total = next(iter(totals), None)
+    cursor = 0
+    for page in ordered:
+        assert page.offset is not None
+        if page.offset != cursor:
+            return ProfilePageLedger(expected_dataset_id, tuple(item for p in ordered for item in p.items),
+                                     len(ordered), "INCOMPLETE", total,
+                                     sum(len(p.items) for p in ordered), offsets)
+        end = page.offset + len(page.items)
+        cursor = end
+    item_count = sum(len(page.items) for page in ordered)
+    if total is None:
+        completeness = "COMPLETENESS_UNKNOWN"
+    elif cursor == total:
+        completeness = "COMPLETE"
+    elif cursor < total:
+        completeness = "INCOMPLETE"
+    else:
+        raise MCPParseError("DATASET_COUNT_MISMATCH", "Parsed pages exceed the reported Dataset total")
+    return ProfilePageLedger(expected_dataset_id, tuple(item for page in ordered for item in page.items),
+                             len(ordered), completeness, total, item_count, offsets)
+
+
+def _profile_duplicate_states(results: Sequence[ProfileItemResult]) -> list[ProfileItemResult]:
+    seen: dict[tuple[str, str], list[int]] = {}
+    for index, result in enumerate(results):
+        if result.attribution != "MATCHED_OWNER":
+            continue
+        for key in result.post_keys:
+            seen.setdefault((result.owner_username or "", key), []).append(index)
+    duplicates = {index for indexes in seen.values() if len(indexes) > 1 for index in indexes}
+    updated: list[ProfileItemResult] = []
+    for index, result in enumerate(results):
+        if index in duplicates:
+            state = "DUPLICATE"
+        elif result.attribution == "MATCHED_OWNER" and result.post_keys:
+            state = "UNIQUE"
+        else:
+            state = "NOT_VERIFIABLE"
+        updated.append(ProfileItemResult(**{**asdict(result), "duplicate_status": state}))
+    return updated
+
+
+def profile_acceptance(run: RunMetadata, pages: Sequence[DatasetPage], usernames: Any, *,
+                       results_limit: Any = None, skip_pinned_posts: Any = None) -> dict[str, Any]:
+    """Profile-only acceptance; Run/Dataset and transcript states stay independent."""
+    profile_input = validate_profile_input(usernames, results_limit=results_limit,
+                                           skip_pinned_posts=skip_pinned_posts)
+    if not isinstance(run.run_id, str) or not run.run_id.strip():
+        raise MCPParseError("RUN_IDENTITY_UNAVAILABLE", "Profile acceptance requires a verified Run identity")
+    if run.status is None or run.status.upper() not in TERMINAL_STATUSES:
+        raise MCPParseError("RUN_NOT_TERMINAL", "A terminal, identified Run is required")
+    if run.status.upper() != "SUCCEEDED":
+        return {"status": "RUN_FAILED", "functionalVerdict": "PARTIAL", "verdict": "PARTIAL",
+                "blockingReasons": ["RUN_FAILED"], "overallBlockingReasons": ["RUN_FAILED"],
+                "items": [], "runStatus": run.status, "datasetCompleteness": "NOT_READ",
+                "datasetIdPath": run.dataset_id_path or "UNKNOWN", "itemsSource": "UNKNOWN",
+                "datasetSource": "UNKNOWN", "runSource": run.run_source or "UNKNOWN",
+                "itemCount": None, "totalItemCount": None, "parsedItemCount": 0,
+                "ownerFieldAbsentCount": 0, "ownerPresenceByAccount": [],
+                "transcriptRequired": False, "transcriptAssessment": "NOT_EXPECTED_PROFILE_MODE",
+                "transcriptDataState": "NOT_READ"}
+    if not isinstance(run.dataset_id, str) or not run.dataset_id.strip():
+        raise MCPParseError("DATASET_RUN_BINDING_MISMATCH", "Run Dataset identity is required")
+    ledger = profile_page_ledger(pages, expected_dataset_id=run.dataset_id)
+    if run.dataset_item_count is not None and ledger.total_item_count is not None:
+        if run.dataset_item_count != ledger.total_item_count:
+            raise MCPParseError("DATASET_RUN_BINDING_MISMATCH", "Run and Dataset item counts disagree")
+    parsed = [profile_item(item, profile_input.usernames) for item in ledger.items]
+    results = _profile_duplicate_states(parsed)
+    matched_owners = {item.owner_username for item in results
+                      if item.attribution == "MATCHED_OWNER" and item.status == "PROFILE_POST_MATCHED"}
+    every_requested_account_seen = all(name in matched_owners for name in profile_input.usernames)
+    all_items_matched = all(item.status == "PROFILE_POST_MATCHED" for item in results)
+
+    account_counts = {name: {"recordCount": 0, "ownerFieldPresentCount": 0,
+                             "ownerFieldAbsentCount": 0, "ownerFieldTypeErrorCount": 0,
+                             "ownerFieldEmptyCount": 0, "ownerMismatchCount": 0,
+                             "ownerAmbiguousCount": 0, "trustedOwnerMatchCount": 0,
+                             "contextOnlyCount": 0}
+                      for name in profile_input.usernames}
+    for item in results:
+        if item.attribution == "MATCHED_OWNER" and item.owner_username in account_counts:
+            counters = account_counts[item.owner_username]
+            counters["recordCount"] += 1
+            counters["ownerFieldPresentCount"] += 1
+            counters["trustedOwnerMatchCount"] += 1
+        elif item.attribution == "CONTEXT_ONLY_UNCONFIRMED" and item.requested_owner in account_counts:
+            counters = account_counts[item.requested_owner]
+            counters["recordCount"] += 1
+            counters["ownerFieldAbsentCount"] += 1
+            counters["contextOnlyCount"] += 1
+        elif item.attribution == "OWNER_AMBIGUOUS" and item.owner_username:
+            account_name = next((name for name in profile_input.usernames
+                                 if name.casefold() == item.owner_username.casefold()), None)
+            if account_name is not None:
+                account_counts[account_name]["ownerAmbiguousCount"] += 1
+    accounts_without_posts = ([name for name, counters in account_counts.items()
+                               if counters["trustedOwnerMatchCount"] == 0]
+                              if ledger.completeness == "COMPLETE" else [])
+    owner_field_absent_count = sum(item.owner_field_state == "ABSENT" for item in results)
+    owner_field_type_error_count = sum(item.owner_field_state in ("INVALID_TYPE", "INVALID_VALUE")
+                                       for item in results)
+    owner_field_empty_count = sum(item.owner_field_state == "EMPTY" for item in results)
+    owner_field_present_count = sum(item.owner_field_state == "PRESENT" for item in results)
+    owner_mismatch_count = sum(item.attribution == "OWNER_MISMATCH" for item in results)
+    owner_ambiguous_count = sum(item.attribution == "OWNER_AMBIGUOUS" for item in results)
+    context_only_count = sum(item.attribution == "CONTEXT_ONLY_UNCONFIRMED" for item in results)
+    author_conflict_count = sum(item.author_field_conflict for item in results)
+
+    blocking_reasons: list[str] = []
+    def block(reason: str, condition: bool) -> None:
+        if condition and reason not in blocking_reasons:
+            blocking_reasons.append(reason)
+
+    block("ACTOR_ITEM_ERROR", any(item.business_error is not None for item in results))
+    block("INCOMPLETE", ledger.completeness == "INCOMPLETE")
+    block("COMPLETENESS_UNKNOWN", ledger.completeness == "COMPLETENESS_UNKNOWN")
+    block("OWNER_MISMATCH", owner_mismatch_count > 0)
+    block("OWNER_AMBIGUOUS", owner_ambiguous_count > 0)
+    block("OWNER_UNAVAILABLE", any(item.attribution == "OWNER_UNAVAILABLE" for item in results))
+    block("CONTEXT_ONLY_UNCONFIRMED", context_only_count > 0)
+    block("REQUESTED_ACCOUNT_WITHOUT_POST", bool(accounts_without_posts))
+    block("AUTHOR_FIELD_CONFLICT", author_conflict_count > 0)
+    block("POST_IDENTITY_CONFLICT", any(item.post_identity == "POST_IDENTITY_CONFLICT" for item in results))
+    block("UNKNOWN_SHAPE", any(item.status == "UNKNOWN_SHAPE" for item in results))
+    block("DUPLICATE_PROFILE_POST", any(item.duplicate_status == "DUPLICATE" for item in results))
+    block("DUPLICATE_CHECK_NOT_VERIFIABLE",
+          any(item.duplicate_status == "NOT_VERIFIABLE" for item in results))
+    block("EMPTY_PROFILE_RESULT", not ledger.items and ledger.completeness == "COMPLETE")
+
+    strict_pass = (run.status.upper() == "SUCCEEDED" and ledger.completeness == "COMPLETE"
+                   and bool(results) and every_requested_account_seen and all_items_matched
+                   and all(item.duplicate_status == "UNIQUE" for item in results)
+                   and author_conflict_count == 0)
+    functional = "PASS" if strict_pass else (
+        "COMPLETENESS_UNKNOWN" if ledger.completeness == "COMPLETENESS_UNKNOWN" else "PARTIAL")
+    build = run.build_verified
+    verdict = "BUILD_DRIFT" if build == "BUILD_DRIFT" else functional
+    if strict_pass:
+        status = "PROFILE_POST_MATCHED"
+    else:
+        priority = ("ACTOR_ITEM_ERROR", "INCOMPLETE", "COMPLETENESS_UNKNOWN", "OWNER_MISMATCH",
+                    "OWNER_AMBIGUOUS", "OWNER_UNAVAILABLE", "UNKNOWN_SHAPE",
+                    "POST_IDENTITY_CONFLICT", "AUTHOR_FIELD_CONFLICT", "CONTEXT_ONLY_UNCONFIRMED",
+                    "EMPTY_PROFILE_RESULT", "REQUESTED_ACCOUNT_WITHOUT_POST",
+                    "DUPLICATE_PROFILE_POST", "DUPLICATE_CHECK_NOT_VERIFIABLE")
+        status = next((reason for reason in priority if reason in blocking_reasons), "ACCEPTANCE_INCOMPLETE")
+
+    observed_items_sources = sorted({page.items_source for page in pages if page.items_source})
+    if not observed_items_sources:
+        items_source: str | list[str] = "UNKNOWN"
+    elif len(observed_items_sources) == 1:
+        items_source = observed_items_sources[0]
+    else:
+        items_source = observed_items_sources
+    dataset_envelope_observed = any(
+        "structuredContent" in page.raw_fields_present or "content" in page.raw_fields_present
+        for page in pages
+    )
+    dataset_source = "MCP" if dataset_envelope_observed and observed_items_sources else "UNKNOWN"
+    observed_item_counts = [page.item_count for page in pages]
+    item_count = sum(observed_item_counts) if all(count is not None for count in observed_item_counts) else None
+    dataset_raw_fields = sorted({key for page in pages for key in page.raw_fields_present})
+    return {
+        "status": status, "statusScope": "AGGREGATE",
+        "functionalVerdict": functional, "verdict": verdict,
+        "blockingReasons": blocking_reasons,
+        "overallBlockingReasons": (["BUILD_DRIFT"] if build == "BUILD_DRIFT" else blocking_reasons),
+        "runStatus": run.status, "runId": run.run_id, "datasetId": ledger.dataset_id,
+        "datasetIdPath": run.dataset_id_path or "UNKNOWN",
+        "itemsSource": items_source, "datasetSource": dataset_source, "runSource": run.run_source or "UNKNOWN",
+        "runRawFieldsPresent": list(run.raw_fields_present),
+        "datasetRawFieldsPresent": dataset_raw_fields,
+        "datasetCompleteness": ledger.completeness,
+        "itemCount": item_count, "totalItemCount": ledger.total_item_count,
+        "parsedItemCount": ledger.parsed_item_count, "datasetItemCount": ledger.total_item_count,
+        "pageCount": ledger.page_count,
+        "pageOffsets": list(ledger.offsets), "accountContentCoverage": "UNVERIFIED",
+        "requestedAccounts": list(profile_input.usernames),
+        "matchedAccounts": sorted(name for name in matched_owners if name is not None),
+        "allRequestedAccountsSeen": every_requested_account_seen,
+        "requestedAccountsWithoutPost": accounts_without_posts,
+        "ownerFieldPresentCount": owner_field_present_count,
+        "ownerFieldAbsentCount": owner_field_absent_count,
+        "ownerFieldTypeErrorCount": owner_field_type_error_count,
+        "ownerFieldEmptyCount": owner_field_empty_count,
+        "ownerMismatchCount": owner_mismatch_count,
+        "ownerAmbiguousCount": owner_ambiguous_count,
+        "contextOnlyUnconfirmedCount": context_only_count,
+        "authorFieldConflictCount": author_conflict_count,
+        "ownerPresenceByAccount": [
+            {"requestedUsername": name, **counters} for name, counters in account_counts.items()
+        ],
+        "resultsLimit": profile_input.results_limit,
+        "skipPinnedPosts": profile_input.skip_pinned_posts,
+        "transcriptRequired": False,
+        "transcriptAssessment": "NOT_EXPECTED_PROFILE_MODE",
+        "transcriptDataState": "OBSERVED" if results else "ABSENT",
+        "transcriptDataStates": sorted({item.transcript_data_state for item in results}),
+        "items": [item.to_dict() for item in results], "buildVerified": build,
+        "costCapStatus": "NOT_VERIFIED",
+    }
 
 
 def scrub(value: str) -> str:

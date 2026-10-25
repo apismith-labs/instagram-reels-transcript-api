@@ -1,0 +1,34 @@
+{
+  "fixtureEvidence": "SYNTHETIC_NOT_A_RECORDED_PROFILE_MCP_RESPONSE",
+  "description": "Synthetic adapter envelope shaped only to exercise offline Profile parsing; item values are safe sentinels.",
+  "run": {
+    "structuredContent": {
+      "runId": "synthetic-profile-run-001",
+      "actorId": "synthetic-actor",
+      "status": "SUCCEEDED",
+      "storages": {"datasets": {"default": {"id": "synthetic-profile-dataset-001", "itemCount": 1}}}
+    }
+  },
+  "dataset": {
+    "structuredContent": {
+      "datasetId": "synthetic-profile-dataset-001",
+      "itemCount": 1,
+      "totalItemCount": 1,
+      "offset": 0,
+      "limit": 10,
+      "items": [
+        {
+          "ownerUsername": "synthetic_creator",
+          "type": "Video",
+          "code": "syntheticPost001",
+          "url": "https://www.instagram.com/reel/syntheticPost001/",
+          "caption": "SYNTHETIC_CAPTION_DO_NOT_OUTPUT",
+          "text": "SYNTHETIC_TRANSCRIPT_DO_NOT_OUTPUT",
+          "segments": [{"start": 0, "end": 1, "text": "SYNTHETIC_SEGMENT_DO_NOT_OUTPUT"}],
+          "errMsg": ""
+        }
+      ]
+    }
+  },
+  "input": {"usernames": ["synthetic_creator"], "resultsLimit": 1, "skipPinnedPosts": false}
+}

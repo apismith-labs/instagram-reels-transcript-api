@@ -19,11 +19,12 @@ Primary Actor: [apple_yang/instagram-transcripts-scraper](https://apify.com/appl
 | --- | --- |
 | Tool names, connection methods, query parameters, run limits | Read from the official Apify MCP documentation (<https://docs.apify.com/mcp>) and the per-client Apify integration pages on 2026-10-24 |
 | Actor input/output semantics | Pinned build `0.0.50` contract, same basis as [input-output-fields.md](input-output-fields.md) — schema-level, not observed |
-| Actually calling this Actor over MCP from any client | **Not performed.** This repository has no MCP client, no token, and no end-to-end MCP run has been verified |
+| Native Codex Apify MCP read-only verification | **Performed 2026-10-25:** `get-actor-run` then `get-dataset-items` for one existing Run; no Actor Run was created |
+| Billable `call-actor` acceptance over MCP | **Not performed.** The read-only verification does not establish the creation path, its full response shape, or charge-cap enforcement |
 
-Everything below is therefore documentation-level guidance. Tool availability, tool naming, and
-client UI all depend on the client version, the server configuration, and your account — so treat
-tool names as "what to look for", not as strings to hardcode.
+Tool availability, tool naming, and client UI depend on client and server versions and account
+configuration. The response paths documented below are one dated observation, not permanent MCP
+protocol guarantees.
 
 ## Prerequisites
 
@@ -151,7 +152,7 @@ results.
 | --- | --- | --- |
 | Find the Actor | `search-actors` | No-token access only with the restricted four-tool URL above; the default endpoint requires authentication |
 | Read the input schema, output schema, README, pricing | `fetch-actor-details` | This is how the agent learns which fields to send |
-| Start a Run | `call-actor` | Waits up to `waitSecs` (0–45, default 30). Returns **run status and storage IDs, not the results** |
+| Start a Run | `call-actor` | Waits up to `waitSecs` (0–45, default 30). Its original result shape has not been captured here; do not assume a Dataset ID path from it |
 | Get the Run ID | the `call-actor` response | The run object carries its own ID; keep it |
 | Check Run status | `get-actor-run`, or `get-actor-run-list` | The list variant is filterable by status, which is how you find a Run whose ID you lost |
 | Inspect logs | `get-actor-run-log` | Useful when a Run ends `FAILED` with no useful Dataset |
@@ -200,15 +201,58 @@ before any billable call, and get owner approval for the budget.
 
 ## Getting complete results
 
-`call-actor` returns identifiers, not data. A transcript is only in hand once dataset items have
-been read.
+`call-actor` result fields are not fully verified here. A transcript is only in hand once dataset
+items have been read. In the observed `get-actor-run` result, the Dataset ID was at
+`structuredContent.storages.datasets.default.id`.
 
-1. Call the Actor and keep the returned **Run ID** and **Dataset ID**.
+1. Keep the Run ID from the call result. For `get-actor-run`, resolve the Dataset ID from
+   `structuredContent.storages.datasets.default.id`; a REST Run object uses
+   `data.defaultDatasetId`. Do not search arbitrary `id` fields: storage objects also contain IDs.
 2. Poll `get-actor-run` until the status is terminal.
 3. Read `get-dataset-items` with that `datasetId`.
 4. Send an explicit `limit` on each Dataset read, then page with `offset` until you have everything, or until
    the returned count is smaller than the requested limit.
 5. Only then claim the result is complete.
+
+### Response shapes observed through Codex Apify MCP
+
+The following response paths were **Observed on 2026-10-25, Apify MCP via Codex Apify plugin**
+(`apify@apify-plugins`). This is client-persisted evidence from one server/plugin version, not a
+protocol guarantee:
+
+- `get-actor-run` exposed `structuredContent.runId`, `actorId`, `actorName`, `status`, and
+  `storages.datasets.default.id` with `itemCount`. The Dataset ID was not a top-level
+  `defaultDatasetId` field. The response also exposed `content[]` text blocks and `_meta`.
+- `get-dataset-items` exposed `structuredContent.datasetId`, `items`, `itemCount`,
+  `totalItemCount`, `offset`, and `limit`. `structuredContent.items` held the Dataset records.
+- `content[]` contains `{type, text}` blocks. The JSON in a text block can differ from
+  `structuredContent`; in the observed Dataset result it omitted `summary` and `nextStep`.
+  Prefer the structured object and its `items` array. Never interpret the content text blocks
+  themselves as Dataset rows.
+- In that recorded successful session the client result had no visible `isError` key. A client
+  should handle `isError` absent, `false`, and `true`; only `true` is an explicit tool error.
+  Wire-level `isError` behavior was not captured.
+- `_meta["com.apify/ActorRun"].usageTotalUsd` was observed as a cost field. It is usage metadata,
+  not a final invoice, and does not verify that a requested cost cap was enforced.
+- `buildId` and `buildNumber` were absent from the observed `get-actor-run` result. Keep the
+  request-side `callOptions.build="0.0.50"` pin, but report output Build verification as
+  `UNVERIFIED_SOURCE_ABSENT` when the response does not expose Build metadata.
+
+### Read an existing Run without creating another
+
+For recovery, use only the read tools and the known Run ID:
+
+```text
+Call get-actor-run with the existing Run ID. Confirm the returned runId and terminal status.
+Read the Dataset ID from structuredContent.storages.datasets.default.id. Then call
+get-dataset-items with that Dataset ID, limit=10, offset=0. Check the datasetId echo, itemCount,
+totalItemCount, offset, and the items array. Page with later offsets if needed. Do not call
+call-actor during recovery.
+```
+
+If the response lacks the Dataset ID, report `DATASET_ID_UNAVAILABLE` and stop unless an
+independently verified, bounded read-only recovery source is available. Never choose a Dataset by
+globally searching for a field named `id`.
 
 Rules that prevent the expensive mistakes:
 
@@ -391,13 +435,23 @@ Pricing: <https://apify.com/apple_yang/instagram-transcripts-scraper/pricing>
 
 ## Still unverified
 
-- Whether any of these tool names behave identically across client versions; only the official
-  tool list was checked, not a live connection.
+- Whether the observed result shapes behave identically across Apify MCP server, plugin, and client
+  versions; the observation above covers one Codex Apify plugin session only.
 - Whether an agent reliably chooses `get-dataset-items` over a preview when both are available.
 - Dataset visibility timing after `SUCCEEDED`, and whether `errMsg` and `text` can coexist.
 - One-result-per-URL mapping, ordering, and partial-failure shape in native bulk mode.
 - Profile `timestamp` semantics, `type` enumeration, and the share-count output key.
 - Whether `maxTotalChargeUsd` is honoured per Run as expected for this Actor.
+- Whether the observed response paths remain stable across Apify MCP server or plugin versions.
+- Whether `buildId` or `buildNumber` can be obtained from another read-only MCP tool; neither was
+  present in this `get-actor-run` result.
+- Whether successful tool results contain `isError` on the wire; the persisted Codex result did
+  not expose that key.
+- The differences between `content[0].text` and `structuredContent` across versions and tools.
+- The original `call-actor` response shape; it was not recorded, so no Dataset-ID path is asserted
+  for that call.
+- Whether clients other than Codex Apify MCP preserve the same `structuredContent` and `items`
+  fields; those clients were not tested in this observation.
 
 ## Related docs
 

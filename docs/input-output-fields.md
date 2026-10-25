@@ -142,7 +142,7 @@ requirement list.
 | `pk` | string | Keep as a string; it is a large integer and loses precision as a number. |
 | `id` | string | Media identifier. |
 | `title` | string | Title/caption-derived text. Do not treat it as the transcript. |
-| `img` | string | Thumbnail URL, when available; may be temporary. |
+| `img` | string | Thumbnail URL, when available; may be temporary or present as an empty string. |
 | `videoUrl` | string | **Media/CDN link.** Not a page URL — do not feed it back as `videoUrl` input. |
 | `audioUrl` | string | Media link; documented as optional in the README while the schema marks it required. Handle absence. |
 | `duration` | number | Not listed in the README field table; unit believed to be seconds, **unverified**. |

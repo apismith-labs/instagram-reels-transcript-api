@@ -107,6 +107,15 @@ set. See the [main Apify MCP guide](use-with-apify-mcp.md) for endpoint and tool
 Specify an explicit Dataset `limit` and use `offset` for later pages. Older names such as
 `add-actor` and `get-actor-output` are not in the current documented tool set.
 
+For a known Run, the Dataset ID was observed at
+`structuredContent.storages.datasets.default.id` in `get-actor-run`; Dataset records were
+observed at `structuredContent.items` in `get-dataset-items` (**Observed on 2026-10-25, Apify MCP
+via Codex Apify plugin**). This is one client/server observation, not a protocol guarantee; Gemini
+CLI was not tested. `content` text blocks can differ from `structuredContent` and are not Dataset
+rows. Handle `isError` when absent, `false`, or `true`; only `true` explicitly marks a tool error.
+The original `call-actor` result shape is unverified. Recover an existing result with
+`get-actor-run` followed by `get-dataset-items`, never a replacement Run.
+
 ## Example prompt
 
 ```text

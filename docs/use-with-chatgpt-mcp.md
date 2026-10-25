@@ -107,6 +107,16 @@ claims it did; inspect Run status and returned Dataset items.
 Older names such as `add-actor` and `get-actor-output` are not part of the current documented tool
 set. Ask ChatGPT to list the tools it actually has rather than guessing a replacement.
 
+For a known Run, the Dataset ID was observed at
+`structuredContent.storages.datasets.default.id` in `get-actor-run`; Dataset records were
+observed at `structuredContent.items` in `get-dataset-items` (**Observed on 2026-10-25, Apify MCP
+via Codex Apify plugin**). This is evidence from one client/server version, not a protocol
+guarantee; the ChatGPT connector was not tested. `content` text blocks and `structuredContent` are
+distinct representations. Do not treat `{type, text}` blocks as Dataset rows. Handle `isError`
+when absent, `false`, or `true`; only `true` explicitly indicates a tool error. The original
+`call-actor` result shape is unverified. Recover existing data with `get-actor-run` followed by
+`get-dataset-items`; do not invoke `call-actor` to recover a Run.
+
 ## If ChatGPT cannot find or call the Actor
 
 ```text

@@ -1,0 +1,297 @@
+{
+  "_fixture": "CAPTURED_FROM_NATIVE_MCP_CLIENT_RECORD (redacted) — 2026-10-25, apify@apify-plugins",
+  "run": {
+    "_meta": {
+      "com.apify/ActorRun": {
+        "usageTotalUsd": 0.0155
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"runId\":\"JyaFWeQ1SrLXIteIK\",\"actorId\":\"S9A11NvceWaGorwwh\",\"actorName\":\"apple_yang/instagram-transcripts-scraper\",\"status\":\"SUCCEEDED\",\"exitCode\":0,\"startedAt\":\"2026-10-25T00:00:00.000Z\",\"finishedAt\":\"2026-10-25T00:00:03.000Z\",\"stats\":{\"runTimeSecs\":3,\"computeUnits\":0.01,\"memMaxBytes\":100000000},\"storages\":{\"datasets\":{\"default\":{\"id\":\"MHT7DmSNRX0kmcsKg\",\"itemCount\":2,\"inflatedBytes\":10959,\"fields\":[\"url\",\"code\",\"pk\",\"id\",\"title\",\"img\",\"videoUrl\",\"audioUrl\",\"duration\",\"createTime\",\"likeCount\",\"commentCount\",\"userPk\",\"userName\",\"userFullName\",\"avatarUri\",\"text\",\"segments.start\",\"segments.end\",\"segments.text\",\"errMsg\",\"timestamp\"]}},\"keyValueStores\":{\"default\":{\"id\":\"REDACTED_STORE_ID\",\"keys\":[\"INPUT\"],\"keyCount\":1}}},\"summary\":\"SUCCEEDED in redacted duration\",\"nextStep\":\"[redacted prose]\"}"
+      },
+      {
+        "type": "text",
+        "text": "[redacted prose]"
+      }
+    ],
+    "structuredContent": {
+      "runId": "JyaFWeQ1SrLXIteIK",
+      "actorId": "S9A11NvceWaGorwwh",
+      "actorName": "apple_yang/instagram-transcripts-scraper",
+      "status": "SUCCEEDED",
+      "exitCode": 0,
+      "startedAt": "2026-10-25T00:00:00.000Z",
+      "finishedAt": "2026-10-25T00:00:03.000Z",
+      "stats": {
+        "runTimeSecs": 3,
+        "computeUnits": 0.01,
+        "memMaxBytes": 100000000
+      },
+      "storages": {
+        "datasets": {
+          "default": {
+            "id": "MHT7DmSNRX0kmcsKg",
+            "itemCount": 2,
+            "inflatedBytes": 10959,
+            "fields": [
+              "url",
+              "code",
+              "pk",
+              "id",
+              "title",
+              "img",
+              "videoUrl",
+              "audioUrl",
+              "duration",
+              "createTime",
+              "likeCount",
+              "commentCount",
+              "userPk",
+              "userName",
+              "userFullName",
+              "avatarUri",
+              "text",
+              "segments.start",
+              "segments.end",
+              "segments.text",
+              "errMsg",
+              "timestamp"
+            ]
+          }
+        },
+        "keyValueStores": {
+          "default": {
+            "id": "REDACTED_STORE_ID",
+            "keys": [
+              "INPUT"
+            ],
+            "keyCount": 1
+          }
+        }
+      },
+      "summary": "SUCCEEDED in redacted duration",
+      "nextStep": "[redacted prose]"
+    }
+  },
+  "dataset": {
+    "_meta": null,
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"datasetId\":\"MHT7DmSNRX0kmcsKg\",\"items\":[{\"url\":\"https://www.instagram.com/reel/DeKRjqRFQuJ/\",\"code\":\"DeKRjqRFQuJ\",\"pk\":\"REDACTED_PK\",\"id\":\"REDACTED_MEDIA_ID\",\"title\":\"[REDACTED TITLE]\",\"img\":\"\",\"videoUrl\":\"https://cdn.example.invalid/redacted.mp4\",\"audioUrl\":\"https://cdn.example.invalid/redacted.mp4\",\"duration\":12.5,\"createTime\":1761350000,\"likeCount\":1,\"commentCount\":0,\"userPk\":\"REDACTED_USER_PK\",\"userName\":\"[REDACTED]\",\"userFullName\":\"[REDACTED]\",\"avatarUri\":\"https://cdn.example.invalid/redacted.jpg\",\"text\":\"[REDACTED TRANSCRIPT]\",\"segments\":[{\"start\":0,\"end\":0.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":1,\"end\":1.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":2,\"end\":2.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":3,\"end\":3.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":4,\"end\":4.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":5,\"end\":5.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":6,\"end\":6.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":7,\"end\":7.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":8,\"end\":8.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":9,\"end\":9.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":10,\"end\":10.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":11,\"end\":11.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":12,\"end\":12.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":13,\"end\":13.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":14,\"end\":14.8,\"text\":\"[REDACTED SEGMENT]\"}],\"errMsg\":\"\",\"timestamp\":\"[REDACTED TIMESTAMP]\"},{\"url\":\"https://www.instagram.com/reel/Da-FlEEDIO-/\",\"code\":\"Da-FlEEDIO-\",\"pk\":\"REDACTED_PK\",\"id\":\"REDACTED_MEDIA_ID\",\"title\":\"[REDACTED TITLE]\",\"img\":\"\",\"videoUrl\":\"https://cdn.example.invalid/redacted.mp4\",\"audioUrl\":\"https://cdn.example.invalid/redacted.mp4\",\"duration\":12.5,\"createTime\":1761350000,\"likeCount\":1,\"commentCount\":0,\"userPk\":\"REDACTED_USER_PK\",\"userName\":\"[REDACTED]\",\"userFullName\":\"[REDACTED]\",\"avatarUri\":\"https://cdn.example.invalid/redacted.jpg\",\"text\":\"[REDACTED TRANSCRIPT]\",\"segments\":[{\"start\":0,\"end\":0.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":1,\"end\":1.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":2,\"end\":2.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":3,\"end\":3.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":4,\"end\":4.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":5,\"end\":5.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":6,\"end\":6.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":7,\"end\":7.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":8,\"end\":8.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":9,\"end\":9.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":10,\"end\":10.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":11,\"end\":11.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":12,\"end\":12.8,\"text\":\"[REDACTED SEGMENT]\"},{\"start\":13,\"end\":13.8,\"text\":\"[REDACTED SEGMENT]\"}],\"errMsg\":\"\",\"timestamp\":\"[REDACTED TIMESTAMP]\"}],\"itemCount\":2,\"totalItemCount\":2,\"offset\":0,\"limit\":10}"
+      },
+      {
+        "type": "text",
+        "text": "[redacted prose]"
+      }
+    ],
+    "structuredContent": {
+      "datasetId": "MHT7DmSNRX0kmcsKg",
+      "items": [
+        {
+          "url": "https://www.instagram.com/reel/DeKRjqRFQuJ/",
+          "code": "DeKRjqRFQuJ",
+          "pk": "REDACTED_PK",
+          "id": "REDACTED_MEDIA_ID",
+          "title": "[REDACTED TITLE]",
+          "img": "",
+          "videoUrl": "https://cdn.example.invalid/redacted.mp4",
+          "audioUrl": "https://cdn.example.invalid/redacted.mp4",
+          "duration": 12.5,
+          "createTime": 1761350000,
+          "likeCount": 1,
+          "commentCount": 0,
+          "userPk": "REDACTED_USER_PK",
+          "userName": "[REDACTED]",
+          "userFullName": "[REDACTED]",
+          "avatarUri": "https://cdn.example.invalid/redacted.jpg",
+          "text": "[REDACTED TRANSCRIPT]",
+          "segments": [
+            {
+              "start": 0,
+              "end": 0.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 1,
+              "end": 1.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 2,
+              "end": 2.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 3,
+              "end": 3.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 4,
+              "end": 4.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 5,
+              "end": 5.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 6,
+              "end": 6.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 7,
+              "end": 7.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 8,
+              "end": 8.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 9,
+              "end": 9.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 10,
+              "end": 10.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 11,
+              "end": 11.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 12,
+              "end": 12.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 13,
+              "end": 13.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 14,
+              "end": 14.8,
+              "text": "[REDACTED SEGMENT]"
+            }
+          ],
+          "errMsg": "",
+          "timestamp": "[REDACTED TIMESTAMP]"
+        },
+        {
+          "url": "https://www.instagram.com/reel/Da-FlEEDIO-/",
+          "code": "Da-FlEEDIO-",
+          "pk": "REDACTED_PK",
+          "id": "REDACTED_MEDIA_ID",
+          "title": "[REDACTED TITLE]",
+          "img": "",
+          "videoUrl": "https://cdn.example.invalid/redacted.mp4",
+          "audioUrl": "https://cdn.example.invalid/redacted.mp4",
+          "duration": 12.5,
+          "createTime": 1761350000,
+          "likeCount": 1,
+          "commentCount": 0,
+          "userPk": "REDACTED_USER_PK",
+          "userName": "[REDACTED]",
+          "userFullName": "[REDACTED]",
+          "avatarUri": "https://cdn.example.invalid/redacted.jpg",
+          "text": "[REDACTED TRANSCRIPT]",
+          "segments": [
+            {
+              "start": 0,
+              "end": 0.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 1,
+              "end": 1.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 2,
+              "end": 2.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 3,
+              "end": 3.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 4,
+              "end": 4.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 5,
+              "end": 5.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 6,
+              "end": 6.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 7,
+              "end": 7.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 8,
+              "end": 8.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 9,
+              "end": 9.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 10,
+              "end": 10.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 11,
+              "end": 11.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 12,
+              "end": 12.8,
+              "text": "[REDACTED SEGMENT]"
+            },
+            {
+              "start": 13,
+              "end": 13.8,
+              "text": "[REDACTED SEGMENT]"
+            }
+          ],
+          "errMsg": "",
+          "timestamp": "[REDACTED TIMESTAMP]"
+        }
+      ],
+      "itemCount": 2,
+      "totalItemCount": 2,
+      "offset": 0,
+      "limit": 10,
+      "summary": "2 items returned",
+      "nextStep": "No more pages."
+    }
+  },
+  "expectedShortcodes": [
+    "DeKRjqRFQuJ",
+    "Da-FlEEDIO-"
+  ]
+}

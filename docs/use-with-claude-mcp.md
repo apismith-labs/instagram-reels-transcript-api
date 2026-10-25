@@ -112,6 +112,15 @@ the names and argument schema it reports; do not assume `search-actors`, `fetch-
 When reading Dataset items, pass an explicit `limit` and use `offset` for subsequent pages. Older
 names such as `add-actor` and `get-actor-output` are not in the current documented tool set.
 
+For a known Run, the Dataset ID was observed at
+`structuredContent.storages.datasets.default.id` in `get-actor-run`; Dataset records were
+observed at `structuredContent.items` in `get-dataset-items` (**Observed on 2026-10-25, Apify MCP
+via Codex Apify plugin**). This is one client/server observation, not a protocol guarantee; Claude
+was not tested. `content` text blocks differ from `structuredContent`, so do not parse `{type,
+text}` blocks as rows. Handle `isError` when absent, `false`, and `true`; the observed successful
+result did not expose that key. The original `call-actor` result shape is unverified. Recover an
+existing result with `get-actor-run` and `get-dataset-items`, never a replacement Run.
+
 ## Example prompt
 
 ```text

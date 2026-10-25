@@ -164,6 +164,15 @@ its `call-actor` argument shape and the separate Run/Dataset reading flow, see t
 explicitly and use `offset` for later pages. Older names such as `add-actor` and
 `get-actor-output` are not part of the current documented tool set.
 
+For a known Run, the Dataset ID was observed at
+`structuredContent.storages.datasets.default.id` in `get-actor-run`; Dataset records were
+observed at `structuredContent.items` in `get-dataset-items` (**Observed on 2026-10-25, Apify MCP
+via Codex Apify plugin**). This is a single client/server observation, not a protocol guarantee;
+Cursor and VS Code were not tested. `content` text blocks are not Dataset rows and can differ from
+`structuredContent`. Handle `isError` when absent, `false`, or `true`; only `true` explicitly marks
+a tool error. The original `call-actor` result shape is unverified. Recover existing results with
+`get-actor-run` followed by `get-dataset-items`, not a replacement Run.
+
 ## Example prompts
 
 Generate a typed interface from real data, not from a guess:

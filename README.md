@@ -1,116 +1,146 @@
+[![Instagram Transcript Scraper on Apify](https://apify.com/actor-badge?actor=apple_yang/instagram-transcripts-scraper)](https://apify.com/apple_yang/instagram-transcripts-scraper)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub Actions CI](https://github.com/apismith-labs/instagram-reels-transcript-api/actions/workflows/python-offline.yml/badge.svg)](https://github.com/apismith-labs/instagram-reels-transcript-api/actions/workflows/python-offline.yml)
+
 # Instagram Reels Transcript API
 
-**Turn public Instagram Reel/video URLs into transcript text, timestamped segments, and structured post metadata.** The Apify Actor performs the collection and transcription; this repository contains integration examples and SDKs, not a hosted API or transcription service.
+Use the Apify Actor as an Instagram transcript API: submit public Instagram Reel and video URLs to get transcript text and timestamped segments when available, plus structured post metadata. The Actor performs collection and transcription; this repository provides SDKs, runnable examples, and integration guides.
 
-- **Try the Actor:** [Open it on Apify](https://apify.com/apple_yang/instagram-transcripts-scraper)
-- **First transcript:** [Canonical Quick Start](docs/quickstart.md) · [Current Actor pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing)
-- **Check coverage before integrating:** [Compatibility and verification matrix](docs/compatibility.md)
+**[Try on Apify](https://apify.com/apple_yang/instagram-transcripts-scraper)** · **[View Pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing)** · **[Developer Quick Start](docs/quickstart.md)**
 
-## What you get
+## Try it without code
 
-A successful transcript item includes text and may include timestamped segments. For example:
+You can try the Actor in Apify Console without setting up a local project:
+
+1. Open the [Actor on Apify](https://apify.com/apple_yang/instagram-transcripts-scraper) and select **Try for free**.
+2. In the **Input** form, enter one public Instagram Reel URL in **Video URL**.
+3. Select **Start**, then open the Dataset in the **Storage** tab to inspect or export the result.
+
+Usage may incur charges. See [current pricing on Apify](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing).
+
+## What you can build
+
+| Use case | What the Actor provides | Next step |
+| --- | --- | --- |
+| Competitor content analysis | Transcript text, timestamped segments, and post metadata when returned | Use a downstream LLM to study hooks, messaging, and CTAs; see [AI agent use cases](docs/ai-agent-use-cases.md). |
+| Bulk transcription | Submit multiple supported URLs in one Native Bulk Run | Use the returned structured items in your research workflow; see [batch processing](docs/batch-processing-guide.md). |
+| AI agent and MCP workflows | Structured Actor results through an Apify MCP integration path | Connect a supported MCP client and pass results to your AI workflow; see [MCP guides](docs/use-with-apify-mcp.md). |
+| Content repurposing | Transcript text and segments when available | Give the result to a separate AI or content tool to draft summaries, articles, or scripts; see [prompt recipes](docs/prompt-recipes-for-reels-analysis.md). |
+| Creator and profile research | Public post metadata from Profile mode | Use profile metadata for creator and competitor research; see [Profile mode fields](docs/input-output-fields.md#profile-mode). |
+
+## Example output
+
+Illustrative field shape only; this is not a recorded Actor response. Fields vary by mode and result.
 
 ```json
 {
-  "text": "Example transcript text.",
-  "segments": [{"start": 0, "end": 1.2, "text": "Example transcript text."}]
+  "url": "https://www.instagram.com/reel/<shortcode>/",
+  "code": "<shortcode>",
+  "text": "<transcript text, when available>",
+  "segments": [
+    { "start": 0.0, "end": 2.4, "text": "<spoken segment>" }
+  ],
+  "errMsg": ""
 }
 ```
 
-This is illustrative; fields vary by result and mode. Profile returns post metadata rather than transcripts. See the [field reference](docs/input-output-fields.md).
+Transcript `text` and `segments` depend on the returned item; inspect `errMsg` and the actual fields instead of inferring success from the Run status. The [field reference](docs/input-output-fields.md) describes known and uncertain fields.
 
-## First call
+## Supported input modes
 
-The shortest repository example uses Python 3.10+ and prints transcript text in the terminal. Set credentials and cap through your shell or secret manager; do not paste a real token into a command stored in history.
+Choose one Actor input mode per Run:
+
+| Mode | Input | Purpose |
+| --- | --- | --- |
+| Single Transcript | `videoUrl` | One supported public video URL |
+| Native Bulk | `bulkUrls` | Multiple supported URLs in one Actor Run |
+| Profile Metadata | `usernames` | Public post metadata only; no transcripts |
+
+CSV Batch is a repository client workflow, not a fourth Actor input mode; supported clients create separate Runs for rows when execution is enabled. See [input and output fields](docs/input-output-fields.md) and [Native Bulk vs CSV](docs/batch-processing-guide.md).
+
+## Use it from code
+
+This repository includes examples for Python, Node.js, Go, Java, Rust, and cURL:
+
+| Language | Guide |
+| --- | --- |
+| Python | [Python examples and client](examples/python/README.md) |
+| Node.js | [Node.js examples and client](examples/nodejs/README.md) |
+| Go | [Go examples and client](examples/go/README.md) |
+| Java | [Java examples and client](examples/java/README.md) |
+| Rust | [Rust examples and client](examples/rust/README.md) |
+| cURL | [cURL examples](examples/curl/README.md) |
+
+Before running, set `APIFY_TOKEN` securely in your process environment or secret manager. `0.10` below is an example Run option, not an Actor price or a promise about the final charge; adjust it to suit your needs. The run may incur actual charges.
 
 ```bash
-read -r -s -p 'Apify token: ' APIFY_TOKEN; printf '\n'; export APIFY_TOKEN
+export APIFY_MAX_TOTAL_CHARGE_USD=0.10
 export APIFY_REQUIRE_MAX_TOTAL_CHARGE_USD=1
-read -r -p 'Positive per-Run charge cap (USD): ' APIFY_MAX_TOTAL_CHARGE_USD; export APIFY_MAX_TOTAL_CHARGE_USD
 python3 examples/python/quickstart_single.py 'https://www.instagram.com/reel/REPLACE_WITH_A_REAL_SHORTCODE/'
 ```
 
-Replace the placeholder with a public URL you are allowed to process. This command creates one potentially billable Run. If creation status is uncertain, stop and check Apify before making another create request. See [Quick Start](docs/quickstart.md) for equivalent cURL, Python, and Node.js REST examples that print the Run ID and transcript.
+This command creates one potentially billable Run. The [Developer Quick Start](docs/quickstart.md) has the full setup and equivalent cURL and Node.js examples. Do not retry an uncertain create request; reconcile the existing Run first.
 
-Running this Actor may incur Apify charges. Review [current pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing) before starting a Run. A requested per-Run cap is a protective option, not an absolute final-bill guarantee. A timeout or ambiguous create response is not a reason to retry: reconcile the Run first.
+## Use with AI agents and MCP
 
-## Choose an integration
+The Actor can be connected to supported AI clients through Apify MCP. This repository provides setup guides; it is not a hosted MCP server. Tool availability and live behavior depend on the client and mode, so consult the [compatibility matrix](docs/compatibility.md) and do not assume every integration has been end-to-end verified.
 
-| Goal | Use | Notes |
-| --- | --- | --- |
-| One transcript | [Single URL SDKs and cURL](docs/quickstart.md) | `videoUrl` input; returns transcript `text` and `segments` when available. |
-| Several URLs in one Run | [Native Bulk](docs/batch-processing-guide.md) | `bulkUrls`; one Actor Run for the bulk input. |
-| Public profile post metadata | [Profile guides](examples/python/README.md#profile-posts-metadata-not-transcripts) | `usernames`; Profile does not create transcripts. |
-| CSV with separate work per row | [Batch guide](docs/batch-processing-guide.md) | Each non-empty row is an independent Run when execution is explicitly enabled. |
-| AI client / tool connection | [Apify MCP guide](docs/use-with-apify-mcp.md) | MCP is an Actor-tool integration path, not an SDK. |
-| Application library | [Python](examples/python/README.md) · [Node.js](examples/nodejs/README.md) · [Go](examples/go/README.md) · [Java](examples/java/README.md) · [Rust](examples/rust/README.md) | Language-specific API, safety, install, and verification details. |
+- [Apify MCP](docs/use-with-apify-mcp.md)
+- [ChatGPT](docs/use-with-chatgpt-mcp.md)
+- [Claude](docs/use-with-claude-mcp.md)
+- [Gemini CLI](docs/use-with-gemini-cli-mcp.md)
+- [Cursor and VS Code](docs/use-with-cursor-vscode-mcp.md)
 
-## Capabilities
+## Why use this Actor
 
-The Actor has three primary input modes. Choose one mode per Run; do not combine `videoUrl`, `bulkUrls`, and `usernames` in one input.
+- Use one Apify Actor for supported public Instagram collection and video transcription, reducing the need to assemble and maintain separate retrieval and transcription tools.
+- Submit multiple video URLs in one Native Bulk Run, then inspect the returned items for partial results.
+- Send structured transcript text, timestamped segments, and post metadata when available to your own content research, downstream LLM, or automation workflow; the Actor does not perform that downstream analysis for you.
+- Integrate through the repository's SDKs and examples for Python, Node.js, Go, Java, and Rust, through cURL, or through the documented Apify MCP path in a compatible client.
 
-| Mode | Input | Result |
-| --- | --- | --- |
-| Single transcript | `videoUrl` | Transcript item for one supported public Reel/video/post URL. |
-| Native Bulk transcript | `bulkUrls` | Transcript items for multiple submitted URLs in one Run; exact mapping and completeness depend on returned evidence. |
-| Profile posts | `usernames` | Post metadata and owner attribution; no transcript. |
+## FAQ
 
-CSV is an SDK workflow, not a fourth Actor input mode. Supported SDK CSV execution starts a separate Run for each non-empty row. A CSV batch cap, where available, is per Run rather than a shared total budget.
+### How do I get my first transcript?
 
-The pinned input schema does not enforce an exactly-one-mode rule. SDKs validate their supported mode inputs; direct API callers should still send only one entry field. The Actor's behavior for a mixed-mode input is unverified.
+Open the Actor in Apify Console, choose **Try for free**, enter a public URL, select **Start**, and inspect the Dataset. See [Try it without code](#try-it-without-code).
 
-## Integration status
+### Do I need to write code?
 
-For the current language-by-mode status, live acceptance scope, and package publication boundaries, use the [Compatibility and Verification matrix](docs/compatibility.md). Highlights:
+No. You can try the Actor in Apify Console. Use the [Quick Start](docs/quickstart.md) when you want to integrate it into an application.
 
-- Rust G5 recorded six narrow checks: Single, same-Run Single Resume, a three-URL Native Bulk run, same-Run Bulk Resume, one Profile result, and one CSV row.
-- Go and Java have their own controlled live checks; Java's three-account Profile result was **PARTIAL** (19 successes, one owner attribution unknown, one Actor error).
-- Python and Node.js live coverage varies by mode. Do not infer live acceptance from an implementation or offline test.
-- These checks are not a production-scale reliability guarantee. Several multi-account, multi-row, partial-result, and ambiguous-create scenarios remain unverified.
+### What if a Reel has no speech?
 
-## Safety, cost, and Build
+A Reel without transcribable speech may have no transcript text. Check the returned `text`, `segments`, and `errMsg` fields.
 
-- The token belongs in a secret manager or process environment and is sent in an Authorization header. Never put it in a URL, source file, Git, or logs.
-- Current repository examples use the controlled Actor Build `0.0.50` where pinned. They verify Build identity according to their language-specific contract. This is not a claim that `0.0.50` is the Actor's latest Build.
-- Use a positive `maxTotalChargeUsd` cap for supported Run-creation paths. The cap is a per-Run request option, not an absolute final account-bill limit. Check the [Actor's current pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing).
-- A create `POST` is not automatically retried. A timeout can leave creation status unknown; reconcile before any further create request.
-- Supported resume operations read an existing Run/Dataset with GET requests only. They do not create a replacement Run.
-- Dataset completeness and item attribution matter: Run `SUCCEEDED` alone does not prove every requested item produced a valid transcript.
+For more first-call answers, see the full [FAQ](docs/faq.md).
 
-## Documentation map
+## Important limitations
+
+- Use public content you are allowed to process; private or login-gated content may not be accessible.
+- Transcript fields can be missing, and a completed Run does not guarantee a usable transcript.
+- Profile mode returns public post metadata only; submit a post URL in a separate Single or Native Bulk request when you need a transcript.
+- Native Bulk may return partial results; a successful result for every URL is not guaranteed, so check the returned items and available identity evidence.
+- The Actor transcribes audio, not text embedded in video frames.
+- A timed-out or ambiguous create request is not a reason to create a replacement Run. See [error handling and retries](docs/error-handling-and-retries.md).
+
+See the [compatibility matrix](docs/compatibility.md) for mode-specific implementation and verification status.
+
+## Documentation
 
 | Topic | Guide |
 | --- | --- |
-| First call and output parsing | [Quick Start](docs/quickstart.md) |
-| Pricing and charge-cap notice | [Actor's current pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing) and [Quick Start](docs/quickstart.md) |
-| Language and live-verification scope | [Compatibility](docs/compatibility.md) |
-| Input and output fields | [Field reference](docs/input-output-fields.md) |
-| Errors, states, and retry rules | [Error handling](docs/error-handling-and-retries.md) |
-| Native Bulk vs CSV | [Batch processing](docs/batch-processing-guide.md) |
-| Production readiness checklist | [Production integration checklist](docs/production-integration-checklist.md) |
-| AI use cases and prompt recipes | [AI Agent use cases](docs/ai-agent-use-cases.md) · [Prompt recipes](docs/prompt-recipes-for-reels-analysis.md) |
+| First transcript and code setup | [Quick Start](docs/quickstart.md) |
+| First-call questions | [FAQ](docs/faq.md) |
+| Inputs, outputs, and field caveats | [Input and output fields](docs/input-output-fields.md) |
+| Language and mode verification | [Compatibility](docs/compatibility.md) |
+| Errors and retry behavior | [Error handling](docs/error-handling-and-retries.md) |
+| Native Bulk and CSV | [Batch processing](docs/batch-processing-guide.md) |
+| Production integration | [Production checklist](docs/production-integration-checklist.md) |
+| AI use cases and prompts | [AI agent use cases](docs/ai-agent-use-cases.md) · [Prompt recipes](docs/prompt-recipes-for-reels-analysis.md) |
 | MCP setup | [Apify MCP](docs/use-with-apify-mcp.md) · [ChatGPT](docs/use-with-chatgpt-mcp.md) · [Claude](docs/use-with-claude-mcp.md) · [Gemini CLI](docs/use-with-gemini-cli-mcp.md) · [Cursor / VS Code](docs/use-with-cursor-vscode-mcp.md) |
 
-## Verification detail migration map
+## Try the Actor
 
-The former README mixed product navigation with long mode-specific verification notes. Those claims have been moved and checked against the old statements as follows:
-
-| Previous README detail | Canonical location | Retained fact / limitation |
-| --- | --- | --- |
-| Language-by-mode feature and Live table | [Compatibility](docs/compatibility.md) | Implemented is distinct from Live-verified; Node.js Profile/CSV and Python CSV are not promoted to Live-verified. |
-| Rust G5 six checks and unverified cases | [Compatibility](docs/compatibility.md), [Rust guide](examples/rust/README.md) | Single/Bulk/Profile/CSV and same-Run Resume scope retained; actual charge unknown; broader cases remain unverified. |
-| Java L1–L5 summary | [Compatibility](docs/compatibility.md), [Java guide](examples/java/README.md) | Profile remains PARTIAL with the recorded 19 / 1 / 1 outcomes; no production-scale claim. |
-| Go live checks and result-completeness caveats | [Compatibility](docs/compatibility.md), [Go guide](examples/go/README.md) | Narrow Single/Bulk/Profile/CSV evidence and CSV Dataset-completeness limitation retained. |
-| Actor mode and field-shape cautions | [Field reference](docs/input-output-fields.md) | Profile metadata is not transcript output; mode-specific and uncertain fields remain documented. |
-| Retry and recovery semantics | [Error handling](docs/error-handling-and-retries.md) | No blind create retry, `creation_unknown`, and supported GET-only recovery boundaries retained. |
-| Pricing and Run-cap warnings | [Actor's current pricing](https://apify.com/apple_yang/instagram-transcripts-scraper/pricing), [Quick Start](docs/quickstart.md) | Check current pricing before running; requested caps are not absolute bill guarantees. |
-
-## Repository contents
-
-- `examples/python/`, `examples/nodejs/`, `examples/go/`, `examples/java/`, `examples/rust/`: language clients and CLI examples.
-- `examples/curl/`: cURL examples.
-- `docs/`: quickstarts, field references, compatibility, safety, batching, and MCP guides.
-- `sample-data/`: synthetic/sample CSV input.
-- `sample-output/generated/`: local runtime output; generated files are Git-ignored.
+**[Open the Instagram Transcript Scraper on Apify](https://apify.com/apple_yang/instagram-transcripts-scraper)** · [Read the Developer Quick Start](docs/quickstart.md)
 
 MIT licensed. See [LICENSE](LICENSE).
